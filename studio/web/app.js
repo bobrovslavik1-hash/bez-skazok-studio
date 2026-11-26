@@ -433,8 +433,8 @@
         <div class="grid">
           <div class="card"><div class="card-h"><h2>Доступ Claude (MCP)</h2>${d.mcp_enabled ? badge('включён', 'ok') : badge('выключен', 'warn')}</div><div class="card-b">
             <p style="margin-top:0">Через этот вход Claude сам смотрит журнал, ошибки, выпуски и расходы. Секреты в ответах скрыты, каждое действие пишется в журнал действий.</p>
-            <ol class="steps"><li>Адрес с токеном показал установщик на сервере. Повторить: <span class="mono">docker compose exec studio python -m app.cli mcp-url</span></li>
-              <li>В Claude: Настройки → Коннекторы → Добавить свой коннектор → вставить адрес.</li>
+            <ol class="steps"><li>Адрес с токеном показал установщик на сервере. Показать ещё раз (в окне сервера): <span class="mono">cd /opt/n8n &amp;&amp; docker compose exec -T studio python -m app.cli mcp-url</span></li>
+              <li>В Claude: Плагины → Добавить → Добавить пользовательский коннектор. Название — «Студия», URL — этот адрес, аутентификация — «Без входа».</li>
               <li>Токен никому не пересылай и в чат не вставляй.</li></ol></div></div>
           <div class="card"><div class="card-h"><h2>Сменить пароль</h2></div><div class="card-b">
             <div class="form-row" style="margin-bottom:8px"><input class="input" type="password" id="pw0" placeholder="Текущий пароль" autocomplete="current-password" style="flex:1"></div>

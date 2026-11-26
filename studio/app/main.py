@@ -8,7 +8,7 @@ import time
 from contextlib import asynccontextmanager
 
 from fastapi import Depends, FastAPI, HTTPException, Request
-from fastapi.responses import FileResponse, JSONResponse, Response
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 
 from . import auth, config, costs, db, logs, n8n, services
@@ -273,9 +273,20 @@ def service_worker():
     return FileResponse(config.WEB_DIR / 'sw.js', media_type='text/javascript', headers={'Cache-Control': 'no-cache'})
 
 
+_index_html: dict = {}
+
+
 @app.get('/')
 def index():
-    return FileResponse(config.WEB_DIR / 'index.html', headers={'Cache-Control': 'no-cache'})
+    # к адресам app.js и style.css дописывается версия кода: после автообновления браузер сразу берёт новые файлы
+    v = config.version().get('commit') or 'dev'
+    html = _index_html.get(v)
+    if html is None:
+        raw = (config.WEB_DIR / 'index.html').read_text(encoding='utf-8')
+        html = raw.replace('/static/app.js"', f'/static/app.js?v={v}"').replace('/static/style.css"', f'/static/style.css?v={v}"')
+        _index_html.clear()
+        _index_html[v] = html
+    return HTMLResponse(html, headers={'Cache-Control': 'no-cache'})
 
 
 app.mount('/mcp', MCP_APP)
