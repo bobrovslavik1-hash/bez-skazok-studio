@@ -370,6 +370,8 @@ def collect(source_id: int | None = None, reason: str = 'schedule', ws: str = co
         params: tuple = (ws,)
         if source_id:
             sql, params = sql + ' AND id = %s', (ws, int(source_id))
+        else:  # собранные последние 5 минут не трогаем: после «Добавить списком» сбор идёт несколько раз подряд, и сайты отвечают «429»
+            sql += " AND (last_run_at IS NULL OR last_run_at < now() - interval '5 minutes')"
         srcs = db.q(sql + ' ORDER BY id', params)
 
         def one(s):
