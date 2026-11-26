@@ -45,14 +45,14 @@ STARTER = [
 
     ('ua_media', 'Суспільне Новини', 'https://t.me/suspilnenews'),
     ('ua_media', 'Українська правда', 'https://www.pravda.com.ua/rss/view_news/'),
-    ('ua_media', 'РБК-Україна', 'https://www.rbc.ua/'),
+    ('ua_media', 'РБК-Україна', 'https://www.rbc.ua/static/rss/ukrnet.strong.ukr.rss.xml'),
     ('ua_media', 'УНІАН', 'https://t.me/uniannet'),
     ('ua_media', 'Інтерфакс-Україна', 'https://interfax.com.ua/news/last.rss'),
     ('ua_media', 'Укрінформ', 'https://www.ukrinform.ua/rss/block-lastnews'),
 
     ('front', 'DeepState', 'https://t.me/DeepStateUA'),
-    ('front', 'ISW', 'https://understandingwar.org/'),
-    ('front', 'Мілітарний', 'https://militarnyi.com/uk/feed/'),
+    ('front', 'ISW (Bluesky)', 'https://bsky.app/profile/thestudyofwar.bsky.social/rss'),
+    ('front', 'Мілітарний', 'https://militarnyi.com/uk/news/feed/'),
     ('front', 'Defense Express', 'https://defence-ua.com/'),
 
     ('ru_inside', 'Медуза', 'https://meduza.io/rss/all'),
@@ -80,6 +80,7 @@ STARTER = [
     ('opinion', 'Стерненко (Telegram)', 'https://t.me/ssternenko'),
     ('opinion', 'Бутусов Плюс (YouTube)', 'https://www.youtube.com/channel/UCg7T647ROSeONOCHeNMBduQ'),
     ('opinion', 'Бутусов Плюс (Telegram)', 'https://t.me/butusovplus'),
+    ('opinion', 'Денис Казанский (YouTube)', 'https://www.youtube.com/channel/UCnbuCp4py12SNWCc5TI1RHA'),
     ('opinion', 'Денис Казанский (Telegram)', 'https://t.me/kazansky2017'),
     ('opinion', 'Глазами Пьяных. Здравый смысл', 'https://t.me/glebpiano'),
 
@@ -91,15 +92,9 @@ STARTER = [
     ('signal', 'Mash', 'https://t.me/breakingmash'),
 ]
 
-# Варианты, которые надо проверить с сервера, прежде чем класть в набор (видны только в проверке, не в наборе).
-PROBE = [
-    'https://www.rbc.ua/static/rss/newsline.ukr.rss.xml', 'https://www.rbc.ua/static/rss/ukrnet.strong.ukr.rss.xml',
-    'https://www.rbc.ua/static/rss/ukrnet.ukr.rss.xml', 'https://t.me/rbcukraine', 'https://t.me/rbcua', 'https://t.me/rbc_ukr',
-    'https://militarnyi.com/feed/', 'https://militarnyi.com/uk/news/feed/', 'https://mil.in.ua/uk/feed/',
-    'https://bsky.app/profile/thestudyofwar.bsky.social/rss', 'https://bsky.app/profile/understandingwar.org/rss',
-    'https://news.google.com/rss/search?q=site%3Aunderstandingwar.org+when%3A3d&hl=en-US&gl=US&ceid=US%3Aen',
-    'https://t.me/blackbirdgroup', 'ytsearch:Denis Kazanskyi', 'ytsearch:Денис Казанський', 'ytsearch:Глазами Пьяных',
-]
+# Варианты, которые надо проверить с сервера, прежде чем класть в набор: ссылки или «ytsearch:название канала».
+# Итог виден в list_sources (catalog.lines), пока список не пустой.
+PROBE: list = []
 
 # Известные источники вне набора → группа. Ключи: tg:канал, yt:ID, site:домен, bsky:профиль.
 KNOWN = {
@@ -119,6 +114,7 @@ KNOWN = {
     **{f'site:{d}': 'front' for d in ('understandingwar.org', 'criticalthreats.org', 'militarnyi.com', 'defence-ua.com',
                                       'deepstatemap.live', 'blackbirdgroup.fi', 'oryxspioenkop.com')},
     'bsky:blackbirdgroup.bsky.social': 'front',
+    'bsky:did:plc:wtm3vnk3ohjx6fhrmundh4kz': 'front',  # ISW в Bluesky: лента приходит по такому адресу
     # Россия изнутри
     **{f'tg:{c}': 'ru_inside' for c in ('meduzalive', 'agentstvonews', 'astrapress', 'mediazzzona', 'the_insider', 'currenttime',
                                          'radiosvoboda', 'moscowtimes_ru', 'verstka_media', 'novaya_pishet', 'istories_media',
