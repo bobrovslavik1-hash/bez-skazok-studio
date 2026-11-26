@@ -18,6 +18,7 @@ from . import db, feeds
 
 log = logging.getLogger('studio.content')
 MAX_CHARS = 40_000
+MAX_TRANSCRIPT = 120_000   # расшифровка часового видео — около 60 тыс. знаков
 KIND_LABEL = {'article': 'Полный текст статьи', 'post': 'Текст поста', 'transcript': 'Расшифровка видео',
               'description': 'Описание видео', 'feed': 'Текст из ленты'}
 WHAT_WE_TAKE = {
@@ -91,20 +92,28 @@ def transcript(vid: str) -> str:
         raise feeds.FeedError('не получилось взять субтитры: ' + type(e).__name__)
     except requests.RequestException as e:
         raise feeds.FeedError('нет связи с YouTube: ' + type(e).__name__)
-    parts, buf, mark = [], [], None
-    for sn in snippets:
-        if mark is None:
-            mark = sn.start
-        buf.append(re.sub(r'\s+', ' ', sn.text).strip())
-        if sn.start - mark >= 30:
-            parts.append(f'[{int(mark // 60):02d}:{int(mark % 60):02d}] ' + ' '.join(b for b in buf if b))
-            buf, mark = [], None
-    if buf:
-        parts.append(f'[{int((mark or 0) // 60):02d}:{int((mark or 0) % 60):02d}] ' + ' '.join(b for b in buf if b))
-    text = '\n'.join(parts).strip()
+    text = format_segments([(sn.start, sn.text) for sn in snippets])
     if not text:
         raise feeds.FeedError('субтитры пустые')
-    return text[:MAX_CHARS]
+    return text[:MAX_TRANSCRIPT]
+
+
+def format_segments(segments) -> str:
+    """[(секунда начала, текст), …] → строки по ~30 секунд: «[мм:сс] текст». Часовые видео — «[ч:мм:сс]»."""
+    def stamp(sec: float) -> str:
+        sec = int(max(0, sec))
+        return f'[{sec // 3600}:{sec % 3600 // 60:02d}:{sec % 60:02d}]' if sec >= 3600 else f'[{sec // 60:02d}:{sec % 60:02d}]'
+    parts, buf, mark = [], [], None
+    for start, text in segments:
+        if mark is None:
+            mark = start
+        buf.append(re.sub(r'\s+', ' ', str(text or '')).strip())
+        if start - mark >= 30:
+            parts.append(stamp(mark) + ' ' + ' '.join(b for b in buf if b))
+            buf, mark = [], None
+    if buf and any(buf):
+        parts.append(stamp(mark or 0) + ' ' + ' '.join(b for b in buf if b))
+    return '\n'.join(p for p in parts if p.split('] ', 1)[-1].strip()).strip()
 
 
 # ---------- статьи ----------
@@ -146,6 +155,7 @@ def fill(articles: int = 40, videos: int = 10) -> dict:
 
     if _yt_paused():
         done['youtube'] = 'paused'
+        done['apify'] = _apify_fill()
         return done
     rows = db.q("""SELECT id, url FROM k_items
         WHERE source_type = 'youtube' AND content_kind IS DISTINCT FROM 'transcript' AND content_tries < 3
@@ -166,6 +176,7 @@ def fill(articles: int = 40, videos: int = 10) -> dict:
             _yt_set('blocked', f'YouTube не отдаёт расшифровки нашему серверу ({e}). Нужен посредник — Apify.')
             done['youtube'] = 'blocked'
             log.warning('YouTube не пускает за расшифровками: %s', e)
+            done['apify'] = _apify_fill()
             break
         except feeds.FeedError as e:
             _fail(r['id'], str(e))
@@ -176,6 +187,16 @@ def fill(articles: int = 40, videos: int = 10) -> dict:
             done['errors'] += 1
         time.sleep(1.5)  # не частим: YouTube не любит очереди запросов
     return done
+
+
+def _apify_fill():
+    """Расшифровки через Apify, если человек подключил ключ. Ошибка Apify не должна ломать сбор."""
+    from . import apify
+    try:
+        return apify.fill()
+    except Exception:
+        log.exception('Apify')
+        return {'error': 'внутренняя ошибка'}
 
 
 def _fail(item_id: int, err: str) -> None:

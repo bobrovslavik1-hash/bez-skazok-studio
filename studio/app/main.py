@@ -12,7 +12,7 @@ from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from starlette.concurrency import run_in_threadpool
 
-from . import auth, catalog, config, content, costs, db, feeds, logs, n8n, services, sources
+from . import apify, auth, catalog, config, content, costs, db, feeds, logs, n8n, services, sources, vault
 from .mcp_server import mcp
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s %(name)s %(levelname)s %(message)s')
@@ -335,7 +335,79 @@ def settings(user=Depends(auth.current_user)):
         'public_url': config.PUBLIC_URL, 'links': {'n8n': config.N8N_PUBLIC_URL or None, 'settings_sheet': config.SETTINGS_SHEET_URL or None},
         'users': db.q('SELECT login, name, role, last_login FROM studio_users WHERE workspace_id = %s ORDER BY id', (user['workspace_id'],)),
         'audit': db.q('SELECT actor, action, at FROM studio_audit WHERE workspace_id = %s ORDER BY at DESC LIMIT 15', (user['workspace_id'],)),
+        'services': _services(user['workspace_id']), 'role': user.get('role'),
     }
+
+
+# ---------- ключи сервисов (Apify) ----------
+def _owner(user: dict) -> None:
+    if user.get('role') != 'owner':
+        raise HTTPException(403, 'Ключи сервисов меняет только владелец кабинета')
+
+
+def _services(ws: str) -> dict:
+    return {'apify': {**vault.info('apify', ws), 'state': apify.state(ws), 'actor': apify.ACTOR.replace('~', '/')}}
+
+
+@app.get('/api/services')
+def services_list(user=Depends(auth.current_user)):
+    return _services(user['workspace_id'])
+
+
+@app.post('/api/services/apify/check')
+async def services_apify_check(request: Request, user=Depends(auth.current_user)):
+    """Проверить подключённый ключ: чей он и сколько потрачено в этом месяце."""
+    auth.require_write(request)
+    try:
+        acct = await run_in_threadpool(apify.account, None, user['workspace_id'], True)
+    except apify.ApifyError as e:
+        raise HTTPException(400, str(e))
+    return {**_services(user['workspace_id'])['apify'], 'account': acct}
+
+
+@app.patch('/api/services/apify/settings')
+async def services_apify_settings(request: Request, user=Depends(auth.current_user)):
+    auth.require_write(request)
+    _owner(user)
+    b = await _body(request)
+    try:
+        apify.set_settings(b, user['login'], user['workspace_id'])
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    return _services(user['workspace_id'])['apify']
+
+
+@app.post('/api/services/{service}')
+async def services_set(service: str, request: Request, user=Depends(auth.current_user)):
+    """Сохранить ключ сервиса. Сначала проверяем его у самого сервиса; в ответе ключа нет — только «…последние 4 знака»."""
+    auth.require_write(request)
+    _owner(user)
+    if service != 'apify':
+        raise HTTPException(404, 'Неизвестный сервис')
+    b = await _body(request)
+    token = str(b.get('token') or '').strip()
+    if len(token) < 10 or any(ch.isspace() for ch in token):
+        raise HTTPException(400, 'Ключ выглядит неполным: скопируй его целиком, без пробелов')
+    try:
+        acct = await run_in_threadpool(apify.account, token, user['workspace_id'], True)
+        await run_in_threadpool(vault.put, 'apify', token, user['login'], user['workspace_id'])
+    except apify.ApifyError as e:
+        raise HTTPException(400, str(e))
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    sources.collect_in_background(None, 'apify')  # сразу попробовать расшифровки свежих видео
+    return {**_services(user['workspace_id'])['apify'], 'account': acct}
+
+
+@app.delete('/api/services/{service}')
+def services_remove(service: str, request: Request, user=Depends(auth.current_user)):
+    auth.require_write(request)
+    _owner(user)
+    try:
+        vault.remove(service, user['login'], user['workspace_id'])
+    except ValueError as e:
+        raise HTTPException(404, str(e))
+    return _services(user['workspace_id'])['apify'] if service == 'apify' else {'ok': True}
 
 
 @app.post('/api/password')

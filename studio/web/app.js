@@ -420,6 +420,10 @@
   const SRC_TONE = { ok: 'ok', err: 'err', warn: 'warn', off: '', new: 'info' };
   const WEIGHTS = [[1, 'обычный'], [2, 'важный'], [3, 'главный']];
   let SRC_FILTER = 'all';  // какие источники показывать: все, только включённые, только выключенные
+  let SRC_DIR = null;      // открытое направление («папка»), например «Новости»
+  let SRC_GROUP = 'all';   // открытая вкладка группы
+  const DIR_LABEL = { news: 'Новости' };
+  const dirLabel = x => DIR_LABEL[x] || x;
 
   function hostOf(s) {
     if (s.type === 'telegram') return '@' + s.url;
@@ -514,9 +518,9 @@
       text = it.content.split(/\n+/).filter(Boolean).map(line => {
         let h = esc(line);
         if (it.content_kind === 'transcript') {
-          h = h.replace(/^\[(\d\d):(\d\d)\]/, (m0, mm, ss) => {
-            const link = ytLink(it.url, Number(mm) * 60 + Number(ss));
-            return link ? `<a class="ts" href="${link}" target="_blank" rel="noopener">${mm}:${ss}</a>` : m0;
+          h = h.replace(/^\[(?:(\d+):)?(\d\d):(\d\d)\]/, (m0, hh, mm, ss) => {
+            const link = ytLink(it.url, Number(hh || 0) * 3600 + Number(mm) * 60 + Number(ss));
+            return link ? `<a class="ts" href="${link}" target="_blank" rel="noopener">${hh ? hh + ':' : ''}${mm}:${ss}</a>` : m0;
           });
         }
         return `<p>${h}</p>`;
@@ -549,12 +553,14 @@
     let shown = 0;
     root.querySelectorAll('.src-group').forEach(g => {
       const n = g.querySelectorAll('li.src:not(.hidden)').length;
-      shown += n;
-      g.classList.toggle('hidden', !n);
+      const mine = SRC_GROUP === 'all' || g.dataset.role === SRC_GROUP;
+      if (mine) shown += n;
+      g.classList.toggle('hidden', !n || !mine);
     });
     root.querySelectorAll('[data-filter]').forEach(b => { const on = b.dataset.filter === SRC_FILTER; b.classList.toggle('on', on); b.setAttribute('aria-pressed', String(on)); });
+    root.querySelectorAll('[data-gtab]').forEach(b => { const on = b.dataset.gtab === SRC_GROUP; b.classList.toggle('on', on); b.setAttribute('aria-selected', String(on)); });
     const note = root.querySelector('#filtnote');
-    if (note) note.textContent = rows.length && !shown ? (SRC_FILTER === 'off' ? 'выключенных нет — конвейер читает все источники' : 'включённых нет — конвейер сейчас ничего не собирает') : '';
+    if (note) note.textContent = rows.length && !shown ? (SRC_FILTER === 'off' ? 'выключенных здесь нет' : SRC_FILTER === 'on' ? 'включённых здесь нет' : '') : '';
   }
 
   async function pageSources(view, params) {
@@ -565,14 +571,21 @@
     if (!view.querySelector('.src-page')) view.innerHTML = head(title, sub, actions) + loading();
     let d;
     try { d = await api('/api/sources' + (srcId ? '?src=' + encodeURIComponent(srcId) : '')); } catch (e) { view.innerHTML = head(title, sub) + failBox(e.message); return; }
-    const list = d.sources || [], dirs = d.directions || ['news'], col = d.collector || {}, items = d.items || [], roles = d.roles || [];
+    const all = d.sources || [], dirs = d.directions || ['news'], col = d.collector || {}, roles = d.roles || [];
+    if (!SRC_DIR || !dirs.includes(SRC_DIR)) SRC_DIR = dirs.includes('news') ? 'news' : dirs[0];
+    // направление — «папка»: свои источники и свои выпуски (сейчас одно — «Новости»)
+    const list = all.filter(s => s.direction_id === SRC_DIR), items = (d.items || []).filter(it => !it.direction_id || it.direction_id === SRC_DIR);
     const on = list.filter(s => s.enabled).length;
     const one = srcId ? list.find(s => String(s.id) === String(srcId)) : null;
-    const yt = col.youtube_transcripts || {};
-    const ytNote = list.some(s => s.type === 'youtube' && s.enabled)
-      ? (yt.status === 'blocked' ? `<div class="note warnnote" style="margin-bottom:16px">YouTube не отдаёт расшифровки нашему серверу, поэтому из видео пока берутся название и описание. Расшифровку и суть видео подключим через Apify — это следующий шаг.</div>`
-        : yt.status === 'ok' ? `<div class="note" style="margin-bottom:16px">Расшифровки YouTube работают: у новых видео будет текст того, что в них говорят.</div>` : '')
-      : '';
+    const yt = col.youtube_transcripts || {}, ap = col.apify || {};
+    const ytNote = !list.some(s => s.type === 'youtube' && s.enabled) ? ''
+      : yt.status === 'ok' ? `<div class="note" style="margin-bottom:16px">Расшифровки YouTube работают: у новых видео будет текст того, что в них говорят.</div>`
+      : yt.status !== 'blocked' ? ''
+      : !ap.connected ? `<div class="note warnnote" style="margin-bottom:16px">YouTube не отдаёт расшифровки нашему серверу, поэтому из видео пока берутся только название и описание.
+          Подключи Apify — и у видео будет полный текст: <a href="#/settings">Настройки → Ключи сервисов</a>.</div>`
+      : ap.budget_hit ? `<div class="note warnnote" style="margin-bottom:16px">Расшифровки через Apify на паузе: в этом месяце потрачено $${Number(ap.used_usd || 0).toFixed(2)} — это твой лимит. Поднять его можно в <a href="#/settings">Настройках</a>.</div>`
+      : ap.last_status === 'error' ? `<div class="note warnnote" style="margin-bottom:16px">Apify не сработал: ${esc(ap.last_error || 'ошибка')}. Проверь ключ в <a href="#/settings">Настройках</a>.</div>`
+      : `<div class="note" style="margin-bottom:16px">Расшифровки YouTube идут через Apify: сегодня ${ap.today_got || 0} ${plural(ap.today_got || 0, 'видео', 'видео', 'видео')} из ${ap.per_day} в сутки, шортсы не берём.${ap.used_usd != null ? ` В этом месяце на Apify потрачено $${Number(ap.used_usd).toFixed(2)} из $${Number(ap.monthly_limit_usd).toFixed(2)}.` : ''}</div>`;
     // группы: в порядке ролей, потом «без группы»; внутри — сначала включённые
     const groups = roles.map(r => ({ ...r, list: list.filter(s => s.role === r.key) }));
     const loose = list.filter(s => !s.role || !roles.some(r => r.key === s.role));
@@ -596,13 +609,24 @@
             <div class="muted small" style="margin-top:6px">${col.running ? badge('идёт сбор', 'warn live') : `последний сбор: ${col.last_run_at ? when(col.last_run_at) : 'ещё не было'}`}</div></div>
           <div class="actions sum-act">${list.length ? `<button class="btn small" data-all="on">Включить все</button><button class="btn small" data-all="off">Выключить все</button>` : ''}</div>
         </div></div></div>`;
-    const tools = list.length ? `<div class="src-tools"><span class="muted small">Показать:</span><div class="seg" role="group" aria-label="Какие источники показать">${
-      [['all', 'Все', list.length], ['on', 'Включённые', on], ['off', 'Выключенные', list.length - on]]
-        .map(([k, t, n]) => `<button data-filter="${k}">${t} <span class="num">${n}</span></button>`).join('')}</div><span class="muted small" id="filtnote"></span></div>` : '';
+    const shownGroups = groups.filter(g => g.list.length);
+    if (SRC_GROUP !== 'all' && !shownGroups.some(g => g.key === SRC_GROUP)) SRC_GROUP = 'all';
+    const dirTabs = `<div class="dir-tabs" role="tablist" aria-label="Направления">${dirs.map(x => {
+      const n = all.filter(s => s.direction_id === x).length;
+      return `<button role="tab" class="dir-tab${x === SRC_DIR ? ' on' : ''}" data-dir="${esc(x)}" aria-selected="${x === SRC_DIR}">${I.rss}<span>${esc(dirLabel(x))}</span><span class="num">${n}</span></button>`;
+    }).join('')}</div>`;
+    const tools = list.length ? `<div class="src-tabs" role="tablist" aria-label="Группы источников">
+        <button role="tab" data-gtab="all">Все группы <span class="num">${on}/${list.length}</span></button>${shownGroups.map(g =>
+          `<button role="tab" data-gtab="${esc(g.key)}"${g.key === 'signal' ? ' class="sig"' : ''}>${esc(g.label)} <span class="num">${g.list.filter(s => s.enabled).length}/${g.list.length}</span></button>`).join('')}
+      </div>
+      <div class="src-tools"><span class="muted small">Показать:</span><div class="seg" role="group" aria-label="Какие источники показать">${
+      [['all', 'Все'], ['on', 'Включённые'], ['off', 'Выключенные']]
+        .map(([k, t]) => `<button data-filter="${k}">${t}</button>`).join('')}</div><span class="muted small" id="filtnote"></span>
+        <span class="muted small src-tip">Цифры — включено / всего. Включённые конвейер читает, выключенные нет.</span></div>` : '';
 
     view.innerHTML = head(title, sub, actions) + `<div class="src-page">
-      <div id="addbox"></div>${ytNote}${summary}${tools}
-      ${list.length ? `<div class="src-groups">${groups.filter(g => g.list.length).map(groupCard).join('')}</div>`
+      ${dirTabs}<div id="addbox"></div>${ytNote}${summary}${tools}
+      ${list.length ? `<div class="src-groups">${shownGroups.map(groupCard).join('')}</div>`
         : `<div class="card" style="margin-bottom:16px"><div class="empty"><b>Источников пока нет</b>Нажми «Добавить списком» → «Вставить стартовый набор»: это проверенные источники, уже разложенные по группам. Или добавь по одной ссылке.</div></div>`}
       <div class="card" id="items" style="margin-top:16px"><div class="card-h"><h2>${one ? 'Материалы: ' + esc(one.name) : 'Последние материалы'}</h2>
           <span class="muted small">${one ? '<a href="#/sources">показать все →</a>' : 'нажми на материал, чтобы увидеть, что внутри'}</span></div>
@@ -639,6 +663,10 @@
     page.addEventListener('click', async ev => {
       const f = ev.target.closest('button[data-filter]');
       if (f) { SRC_FILTER = f.dataset.filter; applySrcFilter(view); return; }
+      const gt = ev.target.closest('button[data-gtab]');
+      if (gt) { SRC_GROUP = gt.dataset.gtab; applySrcFilter(view); return; }
+      const dt = ev.target.closest('button[data-dir]');
+      if (dt) { if (dt.dataset.dir !== SRC_DIR) { SRC_DIR = dt.dataset.dir; SRC_GROUP = 'all'; pageSources(view, hashParams()); } return; }
       const ag = ev.target.closest('button[data-autogroup]');
       if (ag) {
         ag.disabled = true;
@@ -860,6 +888,7 @@
             <ol class="steps"><li>Адрес с токеном показал установщик на сервере. Показать ещё раз (в окне сервера): <span class="mono">cd /opt/n8n &amp;&amp; docker compose exec -T studio python -m app.cli mcp-url</span></li>
               <li>В Claude: Плагины → Добавить → Добавить пользовательский коннектор. Название — «Студия», URL — этот адрес, аутентификация — «Без входа».</li>
               <li>Токен никому не пересылай и в чат не вставляй.</li></ol></div></div>
+          <div class="card" id="svc-apify"></div>
           <div class="card"><div class="card-h"><h2>Сменить пароль</h2></div><div class="card-b">
             <div class="form-row" style="margin-bottom:8px"><input class="input" type="password" id="pw0" placeholder="Текущий пароль" autocomplete="current-password" style="flex:1"></div>
             <div class="form-row"><input class="input" type="password" id="pw1" placeholder="Новый, от 10 символов" autocomplete="new-password" style="flex:1"><button class="btn primary" id="pwsave">Сменить</button></div>
@@ -878,9 +907,73 @@
             <div class="meta"><span>${esc(a.actor || '—')}</span><span>${when(a.at)}</span></div></div></li>`).join('') || '<li class="muted">пусто</li>'}</ul></div></div>
         </div>
       </div>`;
+    drawApify($('#svc-apify'), (d.services || {}).apify || {}, d.role === 'owner');
     $('#pwsave').addEventListener('click', async () => {
       try { await api('/api/password', { body: { current: $('#pw0').value, new: $('#pw1').value } }); toast('Пароль изменён'); $('#pw0').value = $('#pw1').value = ''; }
       catch (e) { toast(e.message, true); }
+    });
+  }
+
+  // Apify — посредник для расшифровок YouTube. Ключ вводит сам человек; Студия показывает только последние 4 знака.
+  function drawApify(box, a, owner, acct) {
+    const st = a.state || {};
+    const usd = v => v == null ? '—' : '$' + Number(v).toFixed(2);
+    const used = acct ? acct.used_usd : st.used_usd;
+    box.innerHTML = `<div class="card-h"><h2>Ключи сервисов: Apify</h2>${a.set ? badge('подключён', 'ok') : badge('не подключён', 'warn')}</div><div class="card-b">
+      <p style="margin-top:0">Apify достаёт расшифровки YouTube-видео: наш сервер YouTube не пускает. Это примерно $5 за 1000 видео.
+        Бесплатно Apify даёт $5 в месяц, Студия берёт до ${st.per_day ?? 20} видео в сутки, без шортсов.</p>
+      ${a.set ? `<dl class="kv">
+          <dt>Ключ</dt><dd class="mono">…${esc(a.last4 || '')}</dd>
+          ${acct ? `<dt>Аккаунт</dt><dd>${esc(acct.username || '—')}${acct.plan ? ' · тариф ' + esc(acct.plan) : ''}</dd>` : ''}
+          <dt>Потрачено в этом месяце</dt><dd>${usd(used)}${acct && acct.max_usd != null ? ` <span class="muted">(лимит аккаунта Apify ${usd(acct.max_usd)})</span>` : ''}</dd>
+          <dt>Сегодня</dt><dd>${st.today_got || 0} ${plural(st.today_got || 0, 'расшифровка', 'расшифровки', 'расшифровок')}${st.last_run_at ? ` · последний запуск ${when(st.last_run_at)}` : ' · ещё не запускался'}</dd>
+          ${st.last_error ? `<dt>Ошибка</dt><dd class="errtxt">${esc(st.last_error)}</dd>` : ''}</dl>
+        <div class="form-row" style="margin-top:12px"><label for="aplim">Тратить не больше, $ в месяц</label>
+          <input class="input" id="aplim" type="number" min="0" max="500" step="0.5" value="${esc(st.monthly_limit_usd ?? 4)}" style="width:90px"${owner ? '' : ' disabled'}>
+          <label for="apday">видео в сутки</label><input class="input" id="apday" type="number" min="0" max="300" step="1" value="${esc(st.per_day ?? 20)}" style="width:80px"${owner ? '' : ' disabled'}>
+          ${owner ? '<button class="btn small" id="apsave">Сохранить</button>' : ''}</div>
+        <div class="actions" style="margin-top:12px"><button class="btn small" id="apcheck">Проверить</button>${owner ? '<button class="btn small" id="apoff">Отключить</button>' : ''}</div>`
+      : owner ? `<ol class="steps">
+          <li>Зарегистрируйся на <a href="https://apify.com" target="_blank" rel="noopener">apify.com</a> — это бесплатно.</li>
+          <li>В Apify: Settings → API &amp; Integrations → скопируй Personal API token.</li>
+          <li>Вставь его сюда и нажми «Подключить». Ключ хранится на нашем сервере в зашифрованном виде. Никому его не пересылай и в чат не вставляй.</li></ol>
+        <form class="form-row" id="apform" autocomplete="off"><input class="input" type="password" id="aptoken" placeholder="Ключ Apify (apify_api_…)" autocomplete="off" spellcheck="false" style="flex:1;min-width:220px">
+          <button class="btn primary" type="submit">Подключить</button></form>`
+      : '<p class="muted" style="margin-bottom:0">Подключить ключ может только владелец кабинета.</p>'}</div>`;
+    const form = $('#apform', box);
+    if (form) form.addEventListener('submit', async ev => {
+      ev.preventDefault();
+      const inp = $('#aptoken', box), btn = form.querySelector('button');
+      const token = inp.value.trim();
+      if (!token) { toast('Вставь ключ', true); return; }
+      btn.disabled = true; btn.textContent = 'Проверяю…';
+      try {
+        const r = await api('/api/services/apify', { body: { token } });
+        inp.value = '';
+        toast('Apify подключён' + (r.account && r.account.username ? ': ' + r.account.username : '') + '. Расшифровки начнутся при ближайшем сборе');
+        drawApify(box, r, owner, r.account);
+      } catch (e) { toast(e.message, true); btn.disabled = false; btn.textContent = 'Подключить'; }
+    });
+    const chk = $('#apcheck', box);
+    if (chk) chk.addEventListener('click', async () => {
+      chk.disabled = true;
+      try { const r = await api('/api/services/apify/check', { body: {} }); drawApify(box, r, owner, r.account); toast('Ключ работает'); }
+      catch (e) { toast(e.message, true); chk.disabled = false; }
+    });
+    const save = $('#apsave', box);
+    if (save) save.addEventListener('click', async () => {
+      save.disabled = true;
+      try {
+        const r = await api('/api/services/apify/settings', { method: 'PATCH', body: { monthly_limit_usd: Number($('#aplim', box).value), per_day: Number($('#apday', box).value) } });
+        drawApify(box, r, owner, acct); toast('Сохранено');
+      } catch (e) { toast(e.message, true); save.disabled = false; }
+    });
+    const off = $('#apoff', box);
+    if (off) off.addEventListener('click', async () => {
+      if (!confirm('Отключить Apify? Расшифровки YouTube перестанут приходить. Ключ удалится с нашего сервера.')) return;
+      off.disabled = true;
+      try { const r = await api('/api/services/apify', { method: 'DELETE' }); drawApify(box, r, owner); toast('Apify отключён'); }
+      catch (e) { toast(e.message, true); off.disabled = false; }
     });
   }
 

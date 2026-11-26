@@ -254,6 +254,22 @@ pre.json { background: var(--panel-2); border: 1px solid var(--line-2); border-r
 .src-tools .seg button.on .num { color: var(--muted); }
 .src-group.loose { border-style: dashed; }
 .src-group .card-h .btn { flex: none; }
+/* направления («папки») и вкладки групп в «Источниках» */
+.dir-tabs { display: flex; gap: 4px; flex-wrap: wrap; margin: 0 0 16px; border-bottom: 1px solid var(--line); }
+.dir-tab { display: inline-flex; align-items: center; gap: 8px; padding: 9px 16px; border: 1px solid transparent; border-bottom: 0;
+  border-radius: 10px 10px 0 0; background: transparent; cursor: pointer; font-weight: 650; color: var(--muted); margin-bottom: -1px; }
+.dir-tab svg { width: 16px; height: 16px; }
+.dir-tab.on { background: var(--panel); border-color: var(--line); color: var(--text); }
+.dir-tab .num { font-weight: 600; font-size: 12px; color: var(--faint); }
+.src-tabs { display: flex; gap: 6px; flex-wrap: wrap; margin: 0 0 10px; }
+.src-tabs button { border: 1px solid var(--line); background: var(--panel); border-radius: 999px; padding: 6px 12px; cursor: pointer; font-size: 13px; font-weight: 500; }
+.src-tabs button:hover { border-color: var(--faint); }
+.src-tabs button .num { color: var(--faint); font-weight: 600; margin-left: 2px; font-size: 12px; }
+.src-tabs button.on { background: var(--accent); border-color: var(--accent); color: #fff; }
+.src-tabs button.on .num { color: rgba(255, 255, 255, .82); }
+.src-tabs button.sig:not(.on) { border-color: color-mix(in srgb, var(--warn) 50%, var(--line)); }
+.src-tools .src-tip { margin-left: auto; }
+.kv dd.errtxt { color: var(--err); }
 /* цифры в красном кружке: у «1» в системных шрифтах длинный флажок, и её легко принять за «7» */
 .nav .count, .tabbar .count { font-family: Verdana, Tahoma, var(--font); font-weight: 700; }
 
@@ -289,4 +305,6 @@ pre.json { background: var(--panel-2); border: 1px solid var(--line-2); border-r
   .src-group.loose .card-h { flex-wrap: wrap; }
   .src-group.loose .card-h .grow { flex-basis: 100%; }
   .src-tools .seg button { padding: 6px 9px; }
+  .src-tools .src-tip { margin-left: 0; flex-basis: 100%; }
+  .dir-tab { padding: 8px 12px; }
 }

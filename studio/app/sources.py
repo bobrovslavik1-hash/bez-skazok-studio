@@ -124,8 +124,10 @@ def items(limit: int = 30, source_id: int | None = None) -> list:
 
 
 def collector_state() -> dict:
+    from . import apify
     return {'running': _state['running'], 'last_run_at': _iso(_state['last_run_at']), 'last_result': _state['last_result'],
-            'every_min': round(config.COLLECT_EVERY_SEC / 60), 'youtube_transcripts': content.youtube_state()}
+            'every_min': round(config.COLLECT_EVERY_SEC / 60), 'youtube_transcripts': content.youtube_state(),
+            'apify': apify.state()}
 
 
 def overview(ws: str = config.WORKSPACE, source_id: int | None = None) -> dict:
