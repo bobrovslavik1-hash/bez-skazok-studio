@@ -190,9 +190,14 @@ def add(link: str, name: str | None = None, direction_id: str = 'news', weight: 
         VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s) ON CONFLICT (workspace_id, direction_id, type, url) DO NOTHING RETURNING id""",
                 (ws, direction_id, r['type'], r['key'], name, r.get('site_url'), weight, bool(enabled), (note or '')[:300] or None, actor, role))
     if not row:
-        ex = db.q1('SELECT id, name FROM studio_sources WHERE workspace_id = %s AND direction_id = %s AND type = %s AND url = %s',
+        ex = db.q1('SELECT id, name, role FROM studio_sources WHERE workspace_id = %s AND direction_id = %s AND type = %s AND url = %s',
                    (ws, direction_id, r['type'], r['key']))
-        raise ValueError(f'Такой источник уже есть: «{ex["name"] if ex else name}»')
+        extra = ''
+        if ex and role and not ex['role']:  # был без группы — относим в группу из списка
+            db.x('UPDATE studio_sources SET role = %s, updated_at = now() WHERE id = %s', (role, ex['id']))
+            db.audit(actor, 'source_update', {'id': ex['id'], 'name': ex['name'], 'role': role}, ws)
+            extra = f' — теперь в группе «{ROLES[role][0]}»'
+        raise ValueError(f'Такой источник уже есть: «{ex["name"] if ex else name}»{extra}')
     db.audit(actor, 'source_add', {'id': row['id'], 'name': name, 'type': r['type'], 'url': r['key'], 'role': role}, ws)
     if enabled:
         collect_in_background(row['id'])

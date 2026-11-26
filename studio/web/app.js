@@ -457,8 +457,9 @@ https://www.axios.com/ | Axios
 https://www.politico.eu/ | Politico Europe
 
 # Мнения и разборы
-https://www.youtube.com/@MackNack | Майкл Наки
-https://www.youtube.com/@portnikov | Виталий Портников
+https://www.youtube.com/channel/UCgpSieplNxXxLXYAzJLLpng | Майкл Наки
+https://www.youtube.com/channel/UCTFygGgLg2OPIVsBZ7xeCjg | Портников. Аргументы
+https://t.me/glebpiano | Глазами Пьяных. Здравый смысл
 
 # Только сигнал
 https://t.me/truexanewsua | Труха Україна
