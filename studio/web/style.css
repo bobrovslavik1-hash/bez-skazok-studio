@@ -242,6 +242,18 @@ pre.json { background: var(--panel-2); border: 1px solid var(--line-2); border-r
 .bulk-list li.ok .bk-st, .bulk-list li.ok .bk-msg { color: var(--ok); }
 .bulk-list li.dup .bk-st { color: var(--muted); }
 .bulk-list li.err .bk-st, .bulk-list li.err .bk-msg { color: var(--err); }
+/* группа прямо в строке источника, подсказка Студии, фильтр «все / включённые / выключенные» */
+.inline-sel { border: 0; background: transparent; color: var(--accent); font-size: 12.5px; padding: 0 2px; margin: 0; cursor: pointer; max-width: 190px; }
+.inline-sel:hover, .inline-sel:focus-visible { text-decoration: underline; outline: none; }
+.rows .meta .grp { white-space: nowrap; }
+.rows .guess { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-top: 8px; padding: 6px 6px 6px 10px; border-radius: var(--radius-sm);
+  background: var(--info-soft); color: var(--text); font-size: 12.5px; }
+.rows .guess span { flex: 1; min-width: 180px; }
+.src-tools { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin: 0 0 16px; }
+.src-tools .seg button .num { margin-left: 3px; font-weight: 600; color: var(--faint); }
+.src-tools .seg button.on .num { color: var(--muted); }
+.src-group.loose { border-style: dashed; }
+.src-group .card-h .btn { flex: none; }
 /* цифры в красном кружке: у «1» в системных шрифтах длинный флажок, и её легко принять за «7» */
 .nav .count, .tabbar .count { font-family: Verdana, Tahoma, var(--font); font-weight: 700; }
 
@@ -274,4 +286,7 @@ pre.json { background: var(--panel-2); border: 1px solid var(--line-2); border-r
   .bulk-list li .faint, .bulk-list li .bk-msg { grid-column: 2; }
   .rows > li.src .grow { flex-basis: calc(100% - 46px); }
   .rows > li.src .src-act { margin-left: 46px; }
+  .src-group.loose .card-h { flex-wrap: wrap; }
+  .src-group.loose .card-h .grow { flex-basis: 100%; }
+  .src-tools .seg button { padding: 6px 9px; }
 }

@@ -39,7 +39,7 @@ STARTER = [
     ('official', 'Повітряні сили ЗСУ', 'https://t.me/kpszsu'),
     ('official', 'Генштаб ЗСУ', 'https://t.me/GeneralStaffZSU'),
     ('official', 'Зеленський', 'https://t.me/V_Zelenskiy_official'),
-    ('official', 'Трамп в Truth Social', 'https://trumpstruth.org/feed'),
+    ('official', 'Трамп (Truth Social)', 'https://trumpstruth.org/feed'),
     ('official', 'Белый дом', 'https://www.whitehouse.gov/news/feed/'),
     ('official', 'Кремль', 'http://kremlin.ru/events/president/news/feed'),
 
@@ -54,30 +54,32 @@ STARTER = [
     ('front', 'ISW', 'https://understandingwar.org/'),
     ('front', 'Мілітарний', 'https://militarnyi.com/uk/feed/'),
     ('front', 'Defense Express', 'https://defence-ua.com/'),
-    ('front', 'Black Bird Group', 'https://bsky.app/profile/blackbirdgroup.bsky.social/rss'),
 
     ('ru_inside', 'Медуза', 'https://meduza.io/rss/all'),
     ('ru_inside', 'The Insider', 'https://theins.ru/feed'),
     ('ru_inside', 'Агентство', 'https://t.me/agentstvonews'),
-    ('ru_inside', 'Вёрстка', 'https://verstka.media/'),
+    ('ru_inside', 'Вёрстка', 'https://verstka.media/feed'),
     ('ru_inside', 'Медиазона', 'https://zona.media/rss'),
     ('ru_inside', 'ASTRA', 'https://t.me/astrapress'),
-    ('ru_inside', 'Радио Свобода', 'https://www.svoboda.org/'),
+    ('ru_inside', 'Радио Свобода', 'https://t.me/radiosvoboda'),
     ('ru_inside', 'Настоящее время', 'https://t.me/currenttime'),
-    ('ru_inside', 'The Moscow Times', 'https://www.moscowtimes.ru/rss/news'),
+    ('ru_inside', 'The Moscow Times', 'https://t.me/moscowtimes_ru'),
 
     ('world', 'Reuters (заголовки)', GNEWS.format(site='reuters.com')),
     ('world', 'AP (заголовки)', GNEWS.format(site='apnews.com')),
     ('world', 'Bloomberg (заголовки)', GNEWS.format(site='bloomberg.com')),
     ('world', 'Axios', 'https://api.axios.com/feed/'),
     ('world', 'Politico Europe', 'https://www.politico.eu/feed/'),
-    ('world', 'Kyiv Independent', 'https://kyivindependent.com/rss/'),
+    ('world', 'Kyiv Independent', 'https://t.me/KyivIndependent_official'),
 
+    ('opinion', 'Ходорковский LIVE', 'https://www.youtube.com/channel/UCBzDAjLfvBUBVMMP6-K-y0w'),
     ('opinion', 'Майкл Наки', 'https://www.youtube.com/channel/UCgpSieplNxXxLXYAzJLLpng'),
     ('opinion', 'Портников. Аргументы', 'https://www.youtube.com/channel/UCTFygGgLg2OPIVsBZ7xeCjg'),
-    ('opinion', 'В гостях у Гордона', 'https://www.youtube.com/@gordonua'),
-    ('opinion', 'Стерненко (YouTube)', 'https://www.youtube.com/@sternenko'),
+    ('opinion', 'В гостях у Гордона', 'https://www.youtube.com/channel/UCCcprrrcbdaj14kYPjcbj9w'),
+    ('opinion', 'Стерненко (YouTube)', 'https://www.youtube.com/channel/UC5HBd4l_kpba5b0O1pK-Bfg'),
     ('opinion', 'Стерненко (Telegram)', 'https://t.me/ssternenko'),
+    ('opinion', 'Бутусов Плюс (YouTube)', 'https://www.youtube.com/channel/UCg7T647ROSeONOCHeNMBduQ'),
+    ('opinion', 'Бутусов Плюс (Telegram)', 'https://t.me/butusovplus'),
     ('opinion', 'Денис Казанский (Telegram)', 'https://t.me/kazansky2017'),
     ('opinion', 'Глазами Пьяных. Здравый смысл', 'https://t.me/glebpiano'),
 
@@ -91,19 +93,12 @@ STARTER = [
 
 # Варианты, которые надо проверить с сервера, прежде чем класть в набор (видны только в проверке, не в наборе).
 PROBE = [
-    'https://www.whitehouse.gov/', 'https://www.whitehouse.gov/feed/',
-    'http://en.kremlin.ru/events/president/news/feed', 'https://truthsocial.com/@realDonaldTrump.rss',
-    'https://www.pravda.com.ua/', 'https://t.me/ukrpravda_news',
-    'https://www.rbc.ua/static/rss/all.ukr.rss.xml', 'https://t.me/rbc_ukraine',
-    'https://interfax.com.ua/', 'https://www.ukrinform.ua/',
-    'https://understandingwar.org/feed/', 'https://www.understandingwar.org/rss.xml', 'https://www.criticalthreats.org/',
-    'https://militarnyi.com/uk/', 'https://t.me/militarnyi', 'https://t.me/defence_ua', 'https://t.me/defenseexpress',
-    'https://blackbirdgroup.fi/',
-    'https://t.me/meduzalive', 'https://t.me/the_insider', 'https://verstka.media/feed', 'https://t.me/verstka_media',
-    'https://t.me/mediazzzona', 'https://t.me/radiosvoboda', 'https://www.currenttime.tv/', 'https://t.me/moscowtimes_ru',
-    'https://t.me/KyivIndependent_official', 'https://t.me/butusovplus',
-    'ytsearch:Ходорковский LIVE', 'ytsearch:Бутусов Плюс', 'ytsearch:Денис Казанский', 'ytsearch:Стерненко',
-    'ytsearch:Глеб Пьяных', 'ytsearch:В гостях у Гордона',
+    'https://www.rbc.ua/static/rss/newsline.ukr.rss.xml', 'https://www.rbc.ua/static/rss/ukrnet.strong.ukr.rss.xml',
+    'https://www.rbc.ua/static/rss/ukrnet.ukr.rss.xml', 'https://t.me/rbcukraine', 'https://t.me/rbcua', 'https://t.me/rbc_ukr',
+    'https://militarnyi.com/feed/', 'https://militarnyi.com/uk/news/feed/', 'https://mil.in.ua/uk/feed/',
+    'https://bsky.app/profile/thestudyofwar.bsky.social/rss', 'https://bsky.app/profile/understandingwar.org/rss',
+    'https://news.google.com/rss/search?q=site%3Aunderstandingwar.org+when%3A3d&hl=en-US&gl=US&ceid=US%3Aen',
+    'https://t.me/blackbirdgroup', 'ytsearch:Denis Kazanskyi', 'ytsearch:Денис Казанський', 'ytsearch:Глазами Пьяных',
 ]
 
 # Известные источники вне набора → группа. Ключи: tg:канал, yt:ID, site:домен, bsky:профиль.
@@ -138,6 +133,7 @@ KNOWN = {
         'dw.com', 'cnn.com', 'npr.org', 'euronews.com', 'france24.com', 'aljazeera.com')},
     # мнения и разборы
     **{f'tg:{c}': 'opinion' for c in ('glebpiano', 'kazansky2017', 'ssternenko', 'butusovplus')},
+    **{f'yt:{c}': 'opinion' for c in ('UCZIFo5MmrUJS5JbLOxgnHuQ',)},  # Дмитрий Гордон (второй канал)
     # только сигнал: российские госСМИ, военкоры, анонимные пророссийские каналы
     **{f'tg:{c}': 'signal' for c in (
         'mod_russia', 'rybar', 'breakingmash', 'bazabazon', 'shot_shot', 'truexanewsua', 'rian_ru', 'tass_agency', 'rt_russian',
@@ -158,10 +154,10 @@ _RU_SUFFIX = ('.ru', '.su', '.xn--p1ai', '.рф', '.by')
 
 WHY = {
     'known': 'Студия знает этот источник',
-    'gov': 'государственный сайт',
-    'ru': 'российский или белорусский сайт: работает под цензурой — только как сигнал',
-    'ua': 'украинский сайт',
-    'yt': 'YouTube-канал — обычно это мнения и разборы',
+    'gov': 'это государственный сайт',
+    'ru': 'российский или белорусский сайт работает под цензурой',
+    'ua': 'это украинский сайт',
+    'yt': 'это YouTube-канал, а там обычно мнения и разборы',
 }
 
 
