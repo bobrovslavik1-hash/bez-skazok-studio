@@ -73,7 +73,8 @@ async def costs_summary(days: int = 30) -> dict:
 @mcp.tool()
 async def list_sources() -> dict:
     """Источники новостей: каждый с состоянием (работает / не открывается / молчит / выключен), сколько собрано за сутки и неделю,
-    плюс последние 30 материалов ленты и состояние сборщика (Студия читает ленты сама раз в 30 минут)."""
+    плюс последние 30 материалов ленты, состояние сборщика (Студия читает ленты сама раз в 30 минут) и итог проверки
+    стартового набора с сервера (catalog). У источников без группы — role_guess: куда Студия отнесла бы его сама."""
     return await _run(sources.overview)
 
 
@@ -98,7 +99,8 @@ async def add_source(link: str, name: str | None = None, direction_id: str = 'ne
                      note: str = '', role: str | None = None) -> dict:
     """Добавить источник по ссылке (сайт, t.me/канал, youtube.com/@канал) и сразу собрать первые материалы.
     weight: 1 — обычный, 2 — важный, 3 — главный. role — группа: official (первоисточник), ua_media, front, ru_inside,
-    world, opinion (мнения, не факты), signal (пропаганда/непроверенное, только как «утверждают»).
+    world, opinion (мнения, не факты), signal (пропаганда/непроверенное, только как «утверждают»); не указана —
+    Студия отнесёт сама, если узнает источник; 'none' — без группы.
     Добавляй только те источники, о которых попросил человек."""
     return await _run(_src_call, sources.add, link, name, direction_id, weight, enabled, note, 'claude-mcp', 'main', role)
 
@@ -116,6 +118,13 @@ async def set_sources_enabled(enabled: bool, role: str = 'all') -> dict:
     """Включить или выключить разом: все источники (role='all'), одну группу (official, ua_media, front, ru_inside, world,
     opinion, signal) или источники без группы (role='none'). Выключенные не собираются и не идут в сценарии."""
     return await _run(_src_call, sources.set_enabled, enabled, role, 'claude-mcp')
+
+
+@mcp.tool()
+async def auto_group_sources() -> dict:
+    """Разложить по группам источники без группы: Студия узнаёт известные каналы и сайты и применяет простые правила
+    (госсайты — первоисточники, российские сайты — только сигнал, YouTube — мнения). Незнакомые остаются без группы."""
+    return await _run(_src_call, sources.auto_group, 'claude-mcp')
 
 
 @mcp.tool()

@@ -124,6 +124,9 @@ def fill(articles: int = 40, videos: int = 10) -> dict:
     if not ensure_columns():
         return {}
     done = {'articles': 0, 'videos': 0, 'errors': 0, 'youtube': None}
+    # Google Новости дают только заголовок и ссылку-переадресацию: статью оттуда не достать, запросы не тратим
+    db.x("""UPDATE k_items SET content_tries = 3, content_error = 'Google Новости дают только заголовок', content_at = now()
+        WHERE source_type = 'rss' AND content IS NULL AND content_tries < 3 AND url LIKE %s""", ('https://news.google.com/%',))
     rows = db.q("""SELECT id, url, source_type FROM k_items
         WHERE source_type = 'rss' AND content IS NULL AND content_tries < 3 AND collected_at > now() - interval '3 days'
         ORDER BY collected_at DESC LIMIT %s""", (articles,))

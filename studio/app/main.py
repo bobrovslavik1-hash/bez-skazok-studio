@@ -12,7 +12,7 @@ from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from starlette.concurrency import run_in_threadpool
 
-from . import auth, config, content, costs, db, feeds, logs, n8n, services, sources
+from . import auth, catalog, config, content, costs, db, feeds, logs, n8n, services, sources
 from .mcp_server import mcp
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s %(name)s %(levelname)s %(message)s')
@@ -39,6 +39,7 @@ async def lifespan(app: FastAPI):
     db.init()
     threading.Thread(target=scanner, name='costs-scanner', daemon=True).start()
     threading.Thread(target=sources.loop, name='sources-collector', daemon=True).start()
+    threading.Thread(target=catalog.loop, name='catalog-check', daemon=True).start()
     async with mcp.session_manager.run():
         yield
     db.close()
@@ -278,7 +279,20 @@ async def sources_add(request: Request, user=Depends(auth.current_user)):
     b = await _body(request)
     return await run_in_threadpool(_src_errors, sources.add, str(b.get('link', '')), b.get('name'), b.get('direction_id') or 'news',
                                    b.get('weight', 1), bool(b.get('enabled', True)), str(b.get('note') or ''), user['login'],
-                                   user['workspace_id'], b.get('role') or None)
+                                   user['workspace_id'], b.get('role'))
+
+
+@app.get('/api/sources/starter')
+def sources_starter(user=Depends(auth.current_user)):
+    """Стартовый набор для «Добавить списком» и итог его проверки с сервера."""
+    return sources.starter()
+
+
+@app.post('/api/sources/autogroup')
+async def sources_autogroup(request: Request, user=Depends(auth.current_user)):
+    """Разложить по группам источники без группы — те, что Студия узнаёт."""
+    auth.require_write(request)
+    return await run_in_threadpool(_src_errors, sources.auto_group, user['login'], user['workspace_id'])
 
 
 @app.post('/api/sources/enable')

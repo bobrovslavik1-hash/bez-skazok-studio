@@ -5,11 +5,12 @@
 import calendar
 import datetime as dt
 import html
+import json
 import ipaddress
 import re
 import socket
 import time
-from urllib.parse import parse_qs, urljoin, urlparse
+from urllib.parse import parse_qs, urlencode, urljoin, urlparse
 
 import feedparser
 import httpx
@@ -199,6 +200,30 @@ def youtube_channel_id(page_url: str) -> str:
             return m.group(1)
     raise FeedError('Не получилось узнать ID канала YouTube. Открой канал → «О канале» → «Поделиться» → '
                     '«Скопировать идентификатор канала» и вставь его сюда (начинается на UC)')
+
+
+def youtube_search_channel(query: str) -> list:
+    """Найти каналы YouTube по названию: [{id, title, handle, subs}] из поиска YouTube (первые 5)."""
+    url = 'https://www.youtube.com/results?' + urlencode({'search_query': query, 'sp': 'EgIQAg==', 'hl': 'ru', 'gl': 'UA'})
+    _, body, _ = fetch(url, accept='text/html', cookies=YT_COOKIES)
+    text = body.decode('utf-8', 'ignore')
+    out, seen = [], set()
+    for m in re.finditer(r'"channelRenderer":\{"channelId":"(UC[A-Za-z0-9_-]{22})","title":\{"simpleText":"((?:[^"\\]|\\.)*)"', text):
+        cid = m.group(1)
+        if cid in seen:
+            continue
+        seen.add(cid)
+        win = text[m.end():m.end() + 4000]
+        try:
+            title = json.loads('"' + m.group(2) + '"')
+        except ValueError:
+            title = m.group(2)
+        h = re.search(r'"canonicalBaseUrl":"/(@[^"]+)"', win)
+        subs = re.search(r'"videoCountText":\{.{0,400}?"simpleText":"([^"]+)"', win)
+        out.append({'id': cid, 'title': title, 'handle': h.group(1) if h else None, 'subs': subs.group(1) if subs else None})
+        if len(out) >= 5:
+            break
+    return out
 
 
 def _discover(body: bytes, base: str) -> list:
