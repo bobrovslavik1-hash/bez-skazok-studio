@@ -1,0 +1,39 @@
+# konveyer: этим файлом управляет Студия (studio-src/deploy). Ручные правки перезапишутся при обновлении.
+services:
+  n8n:
+    environment:
+      - N8N_DEFAULT_BINARY_DATA_MODE=filesystem
+      - N8N_RESTRICT_FILE_ACCESS_TO=/data/media;/home/node/.n8n-files
+    volumes:
+      - konveyer_media:/data/media:ro
+  caddy:
+    volumes:
+      - konveyer_media:/data/media:ro
+  worker:
+    build: __WORKER_CTX__
+    restart: unless-stopped
+    env_file: ./konveyer-worker/worker.env
+    volumes:
+      - konveyer_media:/data/media
+      - konveyer_state:/data/state
+      - ./konveyer-secrets:/secrets:ro
+    mem_limit: 3g
+  rsshub:
+    image: diygod/rsshub:latest
+    restart: unless-stopped
+    environment:
+      - CACHE_TYPE=memory
+      - NODE_ENV=production
+    mem_limit: 512m
+# >>> studio
+  studio:
+    build: ./studio-src/studio
+    restart: unless-stopped
+    env_file: ./studio.env
+    volumes:
+      - konveyer_media:/data/media:ro
+    mem_limit: 512m
+# <<< studio
+volumes:
+  konveyer_media:
+  konveyer_state:
