@@ -37,6 +37,19 @@ CREATE TABLE IF NOT EXISTS studio_outbox (
 CREATE INDEX IF NOT EXISTS studio_outbox_pending ON studio_outbox (id) WHERE sent_at IS NULL;
 CREATE TABLE IF NOT EXISTS studio_audit (
   id BIGSERIAL PRIMARY KEY, workspace_id TEXT NOT NULL DEFAULT 'main', actor TEXT, action TEXT, detail JSONB, at TIMESTAMPTZ DEFAULT now());
+CREATE TABLE IF NOT EXISTS studio_sources (
+  id BIGSERIAL PRIMARY KEY, workspace_id TEXT NOT NULL DEFAULT 'main', direction_id TEXT NOT NULL DEFAULT 'news',
+  type TEXT NOT NULL, url TEXT NOT NULL, name TEXT NOT NULL, site_url TEXT, weight SMALLINT NOT NULL DEFAULT 1,
+  enabled BOOLEAN NOT NULL DEFAULT TRUE, note TEXT,
+  last_run_at TIMESTAMPTZ, last_ok_at TIMESTAMPTZ, last_error TEXT, last_new INT, fails INT NOT NULL DEFAULT 0, alert_at TIMESTAMPTZ,
+  created_by TEXT, created_at TIMESTAMPTZ DEFAULT now(), updated_at TIMESTAMPTZ DEFAULT now(),
+  UNIQUE (workspace_id, direction_id, type, url));
+DO $$ BEGIN
+  IF to_regclass('k_items') IS NOT NULL THEN
+    ALTER TABLE k_items ADD COLUMN IF NOT EXISTS source_id BIGINT;
+    CREATE INDEX IF NOT EXISTS k_items_source_time ON k_items (source_id, collected_at DESC);
+  END IF;
+END $$;
 """
 
 

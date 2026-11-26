@@ -3,12 +3,13 @@ import anyio
 from mcp.server.fastmcp import FastMCP
 from mcp.server.transport_security import TransportSecuritySettings
 
-from . import costs, db, logs, n8n, services
+from . import costs, db, feeds, logs, n8n, services, sources
 
 mcp = FastMCP(
     'bez-skazok-studio',
-    instructions=('Студия конвейера «Без сказок»: состояние сервера, журнал запусков n8n с ошибками, выпуски, расходы на Claude и баланс. '
-                  'Секреты в ответах скрыты. Для разбора поломки начни с diagnostics_report.'),
+    instructions=('Студия конвейера «Без сказок»: состояние сервера, журнал запусков n8n с ошибками, выпуски, расходы на Claude и баланс, '
+                  'источники новостей (список, проверка ссылки, добавление, сбор). Секреты в ответах скрыты. '
+                  'Для разбора поломки начни с diagnostics_report. Удалять источники — только когда человек сам попросил.'),
     stateless_http=True, json_response=True, streamable_http_path='/',
     transport_security=TransportSecuritySettings(enable_dns_rebinding_protection=False),
 )
@@ -70,9 +71,62 @@ async def costs_summary(days: int = 30) -> dict:
 
 
 @mcp.tool()
-async def list_sources() -> list:
-    """Источники новостей: сколько материалов собрано за сутки и неделю, когда последний раз, сколько использовано."""
-    return await _run(services.sources)
+async def list_sources() -> dict:
+    """Источники новостей: каждый с состоянием (работает / не открывается / молчит / выключен), сколько собрано за сутки и неделю,
+    плюс последние 30 материалов ленты и состояние сборщика (Студия читает ленты сама раз в 30 минут)."""
+    return await _run(sources.overview)
+
+
+def _src_call(fn, *a, **kw):
+    try:
+        return fn(*a, **kw)
+    except feeds.FeedError as e:
+        return {'error': str(e)}
+    except (LookupError, ValueError) as e:
+        return {'error': str(e)}
+
+
+@mcp.tool()
+async def check_source(link: str) -> dict:
+    """Проверить ссылку, ничего не сохраняя: сайт (найдёт RSS), Telegram-канал (t.me/имя) или YouTube-канал (youtube.com/@имя).
+    Вернёт тип, название и 5 последних материалов."""
+    return await _run(_src_call, sources.check, link)
+
+
+@mcp.tool()
+async def add_source(link: str, name: str | None = None, direction_id: str = 'news', weight: int = 1, enabled: bool = True,
+                     note: str = '') -> dict:
+    """Добавить источник по ссылке (сайт, t.me/канал, youtube.com/@канал) и сразу собрать первые материалы.
+    weight: 1 — обычный, 2 — важный, 3 — главный. Добавляй только те источники, о которых попросил человек."""
+    return await _run(_src_call, sources.add, link, name, direction_id, weight, enabled, note, 'claude-mcp')
+
+
+@mcp.tool()
+async def update_source(source_id: int, enabled: bool | None = None, name: str | None = None, weight: int | None = None,
+                        direction_id: str | None = None, note: str | None = None) -> dict:
+    """Изменить источник: включить/выключить, переименовать, поменять важность (1–3) или направление."""
+    changes = {'enabled': enabled, 'name': name, 'weight': weight, 'direction_id': direction_id, 'note': note}
+    return await _run(_src_call, sources.update, source_id, changes, 'claude-mcp')
+
+
+@mcp.tool()
+async def remove_source(source_id: int) -> dict:
+    """Удалить источник из списка (собранные материалы останутся). Только по прямой просьбе человека."""
+    return await _run(_src_call, sources.remove, source_id, 'claude-mcp')
+
+
+@mcp.tool()
+async def collect_sources(source_id: int | None = None) -> dict:
+    """Собрать свежее прямо сейчас: со всех включённых источников или с одного. Ждёт окончания и возвращает итог по каждому."""
+    res = await _run(sources.collect, source_id, 'claude-mcp')
+    await _run(db.audit, 'claude-mcp', 'sources_collect', {'id': source_id})
+    return res
+
+
+@mcp.tool()
+async def feed_items(limit: int = 30, source_id: int | None = None) -> list:
+    """Последние материалы из ленты источников (заголовок, ссылка, источник, время), новые сверху."""
+    return await _run(sources.items, limit, source_id)
 
 
 @mcp.tool()

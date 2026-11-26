@@ -43,6 +43,12 @@
     download: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4v11M7 10.5l5 5 5-5M5 20h14"/></svg>',
     refresh: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M20 11a8 8 0 0 0-14.3-4.9L4 8M4 4v4h4M4 13a8 8 0 0 0 14.3 4.9L20 16M20 20v-4h-4"/></svg>',
     ext: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M14 4h6v6M20 4l-9 9M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5"/></svg>',
+    plus: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>',
+    pencil: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20h4L19 9a2.8 2.8 0 0 0-4-4L4 16v4zM13.5 6.5l4 4"/></svg>',
+    trash: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h16M10 11v6M14 11v6M6 7l1 12a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2l1-12M9 7V4h6v3"/></svg>',
+    globe: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c2.5 2.6 3.8 5.6 3.8 9s-1.3 6.4-3.8 9c-2.5-2.6-3.8-5.6-3.8-9S9.5 5.6 12 3z"/></svg>',
+    tg: '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M20.7 4.3 2.9 11.2c-1.2.5-1.2 1.2-.2 1.5l4.6 1.4 1.7 5.4c.2.6.4.8.9.8.4 0 .6-.2.9-.4l2.2-2.1 4.6 3.4c.8.5 1.4.2 1.6-.8l3-14.2c.3-1.3-.5-1.9-1.5-1.5zM8.3 13.8l9.4-5.9c.5-.3.9-.1.5.2l-8 7.2-.3 3.3-1.6-4.8z"/></svg>',
+    yt: '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M21.6 7.2a2.6 2.6 0 0 0-1.8-1.8C18.2 5 12 5 12 5s-6.2 0-7.8.4a2.6 2.6 0 0 0-1.8 1.8C2 8.8 2 12 2 12s0 3.2.4 4.8a2.6 2.6 0 0 0 1.8 1.8C5.8 19 12 19 12 19s6.2 0 7.8-.4a2.6 2.6 0 0 0 1.8-1.8c.4-1.6.4-4.8.4-4.8s0-3.2-.4-4.8zM10 15.1V8.9l5.2 3.1L10 15.1z"/></svg>',
   };
 
   const NAV = [
@@ -63,11 +69,12 @@
   // ---------- связь с сервером ----------
   async function api(path, opts = {}) {
     const o = { credentials: 'same-origin', headers: { accept: 'application/json' } };
-    if (opts.body !== undefined || opts.method === 'POST') {
-      o.method = 'POST';
+    const method = opts.method || (opts.body !== undefined ? 'POST' : 'GET');
+    if (method !== 'GET') {
+      o.method = method;
       o.headers['x-studio'] = '1';
-      if (opts.body !== undefined) { o.headers['content-type'] = 'application/json'; o.body = JSON.stringify(opts.body); }
     }
+    if (opts.body !== undefined) { o.headers['content-type'] = 'application/json'; o.body = JSON.stringify(opts.body); }
     const r = await fetch(path, o);
     if (r.status === 401 && !opts.noAuthRedirect) { showLogin(); throw new Error('Нужно войти'); }
     let data = null;
@@ -409,17 +416,174 @@
   }
 
   // ---------- Источники ----------
+  const SRC_IC = { rss: I.globe, telegram: I.tg, youtube: I.yt };
+  const SRC_TONE = { ok: 'ok', err: 'err', warn: 'warn', off: '', new: 'info' };
+  const WEIGHTS = [[1, 'обычный'], [2, 'важный'], [3, 'главный']];
+  function hostOf(s) {
+    if (s.type === 'telegram') return '@' + s.url;
+    if (s.type === 'youtube' && !s.site_url) return 'youtube.com';
+    try { return new URL(s.site_url || s.url).host.replace(/^www\./, ''); } catch (e) { return s.url; }
+  }
+  function srcRow(s, dirs) {
+    const st = s.enabled && (s.state === 'ok' || s.state === 'warn')
+      ? `<span>${s.d1} за сутки · ${s.d7} за неделю${s.last_item_at ? ' · последний ' + when(s.last_item_at) : ''}</span>` : '';
+    return `<li data-id="${s.id}" class="src${s.enabled ? '' : ' off'}">
+      <div class="src-ic ${esc(s.type)}">${SRC_IC[s.type] || I.rss}</div>
+      <div class="grow">
+        <div class="title">${esc(s.name)}</div>
+        <div class="meta"><a href="${esc(s.site_url || s.url)}" target="_blank" rel="noopener">${esc(hostOf(s))}</a><span>${esc(s.type_label)}</span>
+          <span>${esc(s.weight_label)}</span>${dirs.length > 1 ? `<span>${esc(s.direction_id)}</span>` : ''}</div>
+        <div class="meta"><span class="st ${SRC_TONE[s.state] || ''}">${esc(s.state_text)}</span>${st}</div>
+      </div>
+      <div class="src-act">
+        <label class="switch" title="${s.enabled ? 'Выключить' : 'Включить'}"><input type="checkbox" data-act="toggle" aria-label="Включён"${s.enabled ? ' checked' : ''}><i></i></label>
+        <button class="btn small icon" data-act="edit" title="Изменить" aria-label="Изменить">${I.pencil}</button>
+        <button class="btn small icon" data-act="del" title="Удалить" aria-label="Удалить">${I.trash}</button>
+      </div></li>`;
+  }
+  function srcEditForm(s, dirs) {
+    return `<div class="src-ic ${esc(s.type)}">${SRC_IC[s.type] || I.rss}</div>
+      <div class="grow src-form">
+        <input class="input" data-f="name" value="${esc(s.name)}" maxlength="120" placeholder="Название">
+        <select class="input" data-f="weight">${WEIGHTS.map(([v, t]) => `<option value="${v}"${v === s.weight ? ' selected' : ''}>Важность: ${t}</option>`).join('')}</select>
+        ${dirs.length > 1 ? `<select class="input" data-f="direction_id">${dirs.map(x => `<option${x === s.direction_id ? ' selected' : ''}>${esc(x)}</option>`).join('')}</select>` : ''}
+      </div>
+      <div class="src-act"><button class="btn small primary" data-act="save">Сохранить</button><button class="btn small" data-act="cancel">Отмена</button></div>`;
+  }
+  const itemRow = it => `<li><div class="grow"><div class="title"><a href="${esc(it.url)}" target="_blank" rel="noopener">${esc(it.title || it.url)}</a></div>
+    <div class="meta"><span>${esc(it.source_name || '—')}</span><span>${when(it.published_at || it.collected_at)}</span>${it.used_in ? badge('в выпуске', 'ok') : ''}</div></div></li>`;
+
+  function refreshSources(view, delays = [6000, 20000]) {
+    delays.forEach(ms => setTimeout(() => {
+      if (location.hash.split('?')[0] === '#/sources' && !document.querySelector('.add-src, li.src.editing')) pageSources(view);
+    }, ms));
+  }
+
   async function pageSources(view) {
-    view.innerHTML = head('Источники', 'Откуда конвейер берёт новости') + loading();
+    const actions = `<button class="btn" id="collect">${I.refresh}Собрать сейчас</button><button class="btn primary" id="addsrc">${I.plus}Добавить источник</button>`;
+    const title = 'Источники', sub = 'Сайты, Telegram- и YouTube-каналы, откуда конвейер берёт новости';
+    if (!view.querySelector('.src-page')) view.innerHTML = head(title, sub, actions) + loading();
     let d;
-    try { d = await api('/api/sources'); } catch (e) { view.lastElementChild.outerHTML = failBox(e.message); return; }
-    const sheet = d.settings_sheet ? `<a class="btn" href="${esc(d.settings_sheet)}" target="_blank" rel="noopener">${I.ext}Таблица настроек</a>` : '';
-    const rows = d.sources || [];
-    view.innerHTML = head('Источники', 'Откуда конвейер берёт новости', sheet) + `
-      <div class="note" style="margin-bottom:16px">Добавлять и выключать источники прямо отсюда — в следующей версии Студии. Пока это делается в Google Таблице, лист <b>sources</b>.</div>
-      <div class="card scroll-x">${rows.length ? `<table class="table"><tr><th>Источник</th><th>Тип</th><th>Направление</th><th class="r">За сутки</th><th class="r">За неделю</th><th class="r">Всего</th><th class="r">В выпусках</th><th>Последний раз</th></tr>
-        ${rows.map(s => `<tr><td>${esc(s.source_name || '—')}</td><td>${esc(s.source_type || '—')}</td><td>${esc(s.direction_id)}</td><td class="r num">${s.d1}</td><td class="r num">${s.d7}</td><td class="r num">${s.total}</td><td class="r num">${s.used}</td><td>${when(s.last)}</td></tr>`).join('')}</table>`
-        : `<div class="empty"><b>Лента пока пустая</b>Добавь сайты, Telegram- и YouTube-каналы в таблицу настроек — сбор идёт каждые 30 минут.</div>`}</div>`;
+    try { d = await api('/api/sources'); } catch (e) { view.innerHTML = head(title, sub) + failBox(e.message); return; }
+    const list = d.sources || [], dirs = d.directions || ['news'], col = d.collector || {}, items = d.items || [];
+    const on = list.filter(s => s.enabled).length;
+    view.innerHTML = head(title, sub, actions) + `<div class="src-page">
+      <div id="addbox"></div>
+      <div class="card" style="margin-bottom:16px">
+        <div class="card-h"><h2>${list.length ? `Источники · включено ${on} из ${list.length}` : 'Источники'}</h2>
+          <span class="muted small">${col.running ? badge('идёт сбор', 'warn live') : `сбор каждые ${col.every_min || 30} мин${col.last_run_at ? ' · последний ' + when(col.last_run_at) : ''}`}</span></div>
+        ${list.length ? `<ul class="rows src-list">${list.map(s => srcRow(s, dirs)).join('')}</ul>`
+          : `<div class="empty"><b>Источников пока нет</b>Нажми «Добавить источник» и вставь ссылку на сайт, Telegram- или YouTube-канал.</div>`}
+      </div>
+      <div class="card"><div class="card-h"><h2>Последние материалы</h2><span class="muted small">свежее за 48 часов</span></div>
+        ${items.length ? `<ul class="rows">${items.map(itemRow).join('')}</ul>` : '<div class="empty">Пока пусто — материалы появятся после первого сбора.</div>'}
+      </div>
+      <p class="faint small" style="margin:14px 2px 0">Лист sources в Google Таблице больше не используется: источники теперь живут здесь.</p></div>`;
+
+    $('#collect').addEventListener('click', async ev => {
+      const b = ev.currentTarget;
+      b.disabled = true;
+      try {
+        const r = await api('/api/sources/collect', { body: {} });
+        toast(r.started ? 'Сбор запущен — обновлю страницу через несколько секунд' : 'Сбор уже идёт');
+        refreshSources(view);
+      } catch (e) { toast(e.message, true); }
+      setTimeout(() => { b.disabled = false; }, 4000);
+    });
+    $('#addsrc').addEventListener('click', () => openAddSource(view, dirs));
+
+    const listEl = $('.src-list', view);
+    if (!listEl) return;
+    listEl.addEventListener('click', async ev => {
+      const btn = ev.target.closest('button[data-act]');
+      if (!btn) return;
+      const li = btn.closest('li[data-id]'), id = Number(li.dataset.id), s = list.find(x => x.id === id);
+      const act = btn.dataset.act;
+      if (act === 'edit') {
+        li.classList.add('editing');
+        li.innerHTML = srcEditForm(s, dirs);
+        $('[data-f=name]', li).focus();
+      } else if (act === 'cancel') {
+        li.outerHTML = srcRow(s, dirs);
+      } else if (act === 'save') {
+        const body = { name: $('[data-f=name]', li).value, weight: Number($('[data-f=weight]', li).value) };
+        const dsel = $('[data-f=direction_id]', li);
+        if (dsel) body.direction_id = dsel.value;
+        btn.disabled = true;
+        try { await api('/api/sources/' + id, { method: 'PATCH', body }); toast('Сохранено'); pageSources(view); }
+        catch (e) { toast(e.message, true); btn.disabled = false; }
+      } else if (act === 'del') {
+        if (!confirm(`Удалить источник «${s.name}»?\nУже собранные материалы останутся.`)) return;
+        btn.disabled = true;
+        try { await api('/api/sources/' + id, { method: 'DELETE' }); toast('Источник удалён'); pageSources(view); }
+        catch (e) { toast(e.message, true); btn.disabled = false; }
+      }
+    });
+    listEl.addEventListener('change', async ev => {
+      const cb = ev.target.closest('input[data-act=toggle]');
+      if (!cb) return;
+      const id = Number(cb.closest('li[data-id]').dataset.id);
+      cb.disabled = true;
+      try {
+        await api('/api/sources/' + id, { method: 'PATCH', body: { enabled: cb.checked } });
+        toast(cb.checked ? 'Включён — собираю свежее' : 'Выключен: больше не собирается');
+        pageSources(view);
+        if (cb.checked) refreshSources(view);
+      } catch (e) { cb.checked = !cb.checked; cb.disabled = false; toast(e.message, true); }
+    });
+  }
+
+  function openAddSource(view, dirs) {
+    const box = $('#addbox');
+    if (box.firstChild) { $('#srclink').focus(); return; }
+    box.innerHTML = `<div class="card add-src" style="margin-bottom:16px">
+      <div class="card-h"><h2>Новый источник</h2><button class="close" data-x aria-label="Закрыть">×</button></div>
+      <div class="card-b">
+        <form class="form-row" id="chkform"><input class="input" id="srclink" style="flex:1;min-width:220px" autocomplete="off" inputmode="url"
+          placeholder="Ссылка на сайт, t.me/канал или youtube.com/@канал"><button class="btn primary" type="submit">Проверить</button></form>
+        <div class="muted small" style="margin-top:8px">Например: <span class="mono">meduza.io</span> · <span class="mono">t.me/durov</span> · <span class="mono">youtube.com/@varlamov</span>.
+          Студия сама найдёт ленту и покажет, что в ней последнее. X (Twitter) пока не подключаем — он платный.</div>
+        <div id="chkres"></div>
+      </div></div>`;
+    $('#srclink').focus();
+    $('[data-x]', box).addEventListener('click', () => { box.innerHTML = ''; });
+    $('#chkform').addEventListener('submit', async ev => {
+      ev.preventDefault();
+      const link = $('#srclink').value.trim();
+      if (!link) return;
+      const res = $('#chkres'), sb = ev.target.querySelector('button');
+      sb.disabled = true;
+      res.innerHTML = '<div class="muted" style="margin-top:14px">Проверяю ссылку… (до 20 секунд)</div>';
+      let r;
+      try { r = await api('/api/sources/check', { body: { link } }); }
+      catch (e) { res.innerHTML = `<div class="errbox" style="margin-top:14px"><b>Не получилось.</b> ${esc(e.message)}</div>`; sb.disabled = false; return; }
+      sb.disabled = false;
+      res.innerHTML = `<div class="chk">
+        <div class="chk-h"><div class="src-ic ${esc(r.type)}">${SRC_IC[r.type] || I.rss}</div>
+          <div class="grow"><b>${esc(r.feed_title || r.name)}</b><div class="muted small">${esc(r.type_label)} · ${r.count} ${plural(r.count, 'материал', 'материала', 'материалов')} в ленте${r.newest_at ? ' · последний ' + when(r.newest_at) : ''}</div></div>
+          ${badge('лента найдена', 'ok')}</div>
+        ${r.warning ? `<div class="note warnnote">${esc(r.warning)}</div>` : ''}
+        ${r.items.length ? `<ul class="chk-items">${r.items.map(i => `<li><a href="${esc(i.url)}" target="_blank" rel="noopener">${esc(i.title)}</a><span class="faint">${i.published_at ? when(i.published_at) : ''}</span></li>`).join('')}</ul>` : ''}
+        <div class="form-row" style="margin-top:14px">
+          <input class="input" id="nname" value="${esc(r.name)}" maxlength="120" style="flex:1;min-width:200px" placeholder="Название" aria-label="Название">
+          <select class="input" id="nweight" aria-label="Важность">${WEIGHTS.map(([v, t]) => `<option value="${v}">Важность: ${t}</option>`).join('')}</select>
+          ${dirs.length > 1 ? `<select class="input" id="ndir" aria-label="Направление">${dirs.map(x => `<option>${esc(x)}</option>`).join('')}</select>` : ''}
+          <button class="btn primary" id="nsave">Сохранить и включить</button>
+        </div></div>`;
+      $('#nsave').addEventListener('click', async ev2 => {
+        const b = ev2.currentTarget;
+        b.disabled = true;
+        const body = { link, name: $('#nname').value, weight: Number($('#nweight').value) };
+        if ($('#ndir')) body.direction_id = $('#ndir').value;
+        try {
+          const s = await api('/api/sources', { body });
+          toast('Добавлен «' + s.name + '» — собираю первые материалы');
+          box.innerHTML = '';
+          pageSources(view);
+          refreshSources(view);
+        } catch (e) { toast(e.message, true); b.disabled = false; }
+      });
+    });
   }
 
   // ---------- Настройки ----------

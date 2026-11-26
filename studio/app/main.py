@@ -10,8 +10,9 @@ from contextlib import asynccontextmanager
 from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
+from starlette.concurrency import run_in_threadpool
 
-from . import auth, config, costs, db, logs, n8n, services
+from . import auth, config, costs, db, feeds, logs, n8n, services, sources
 from .mcp_server import mcp
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s %(name)s %(levelname)s %(message)s')
@@ -37,6 +38,7 @@ def scanner() -> None:
 async def lifespan(app: FastAPI):
     db.init()
     threading.Thread(target=scanner, name='costs-scanner', daemon=True).start()
+    threading.Thread(target=sources.loop, name='sources-collector', daemon=True).start()
     async with mcp.session_manager.run():
         yield
     db.close()
@@ -228,9 +230,70 @@ def costs_scan(request: Request, user=Depends(auth.current_user)):
     return {'scanned': n, 'summary': costs.summary(30)}
 
 
+# ---------- источники ----------
+async def _body(request: Request) -> dict:
+    try:
+        b = await request.json()
+    except ValueError:
+        raise HTTPException(400, 'Неверный запрос')
+    if not isinstance(b, dict):
+        raise HTTPException(400, 'Неверный запрос')
+    return b
+
+
+def _src_errors(fn, *a, **kw):
+    try:
+        return fn(*a, **kw)
+    except feeds.FeedError as e:
+        raise HTTPException(422, str(e))
+    except LookupError as e:
+        raise HTTPException(404, str(e))
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+
+
 @app.get('/api/sources')
-def sources(user=Depends(auth.current_user)):
-    return {'sources': services.sources(), 'settings_sheet': config.SETTINGS_SHEET_URL or None}
+def sources_list(user=Depends(auth.current_user)):
+    return sources.overview(user['workspace_id'])
+
+
+@app.post('/api/sources/check')
+async def sources_check(request: Request, user=Depends(auth.current_user)):
+    auth.require_write(request)
+    body = await _body(request)
+    return await run_in_threadpool(_src_errors, sources.check, str(body.get('link', '')))
+
+
+@app.post('/api/sources')
+async def sources_add(request: Request, user=Depends(auth.current_user)):
+    auth.require_write(request)
+    b = await _body(request)
+    return await run_in_threadpool(_src_errors, sources.add, str(b.get('link', '')), b.get('name'), b.get('direction_id') or 'news',
+                                   b.get('weight', 1), bool(b.get('enabled', True)), str(b.get('note') or ''), user['login'],
+                                   user['workspace_id'])
+
+
+@app.patch('/api/sources/{sid}')
+async def sources_update(sid: int, request: Request, user=Depends(auth.current_user)):
+    auth.require_write(request)
+    b = await _body(request)
+    return await run_in_threadpool(_src_errors, sources.update, sid, b, user['login'], user['workspace_id'])
+
+
+@app.delete('/api/sources/{sid}')
+def sources_remove(sid: int, request: Request, user=Depends(auth.current_user)):
+    auth.require_write(request)
+    return _src_errors(sources.remove, sid, user['login'], user['workspace_id'])
+
+
+@app.post('/api/sources/collect')
+async def sources_collect(request: Request, user=Depends(auth.current_user)):
+    auth.require_write(request)
+    b = await _body(request)
+    sid = b.get('id')
+    started = sources.collect_in_background(int(sid) if sid else None, 'manual')
+    db.audit(user['login'], 'sources_collect', {'id': sid, 'started': started})
+    return {'started': started, 'collector': sources.collector_state()}
 
 
 @app.get('/api/settings')

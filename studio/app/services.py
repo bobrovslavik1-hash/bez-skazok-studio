@@ -120,17 +120,13 @@ def episode(eid: str) -> dict | None:
     return out
 
 
-def sources() -> list:
-    if not db.table_exists('k_items'):
-        return []
-    rows = db.q("""SELECT direction_id, source_name, source_type, count(*)::int AS total,
-            count(*) FILTER (WHERE collected_at > now() - interval '24 hours')::int AS d1,
-            count(*) FILTER (WHERE collected_at > now() - interval '7 days')::int AS d7,
-            count(*) FILTER (WHERE used_in IS NOT NULL)::int AS used, max(collected_at) AS last
-        FROM k_items GROUP BY 1, 2, 3 ORDER BY max(collected_at) DESC NULLS LAST LIMIT 300""")
-    for r in rows:
-        r['last'] = _iso(r['last'])
-    return rows
+def sources() -> dict:
+    """Источники для отчёта: список с состоянием каждого и состояние сборщика."""
+    from . import sources as src  # здесь, чтобы не тянуть модуль при импорте сервисов
+    try:
+        return {'sources': src.list_sources()[:60], 'collector': src.collector_state()}
+    except Exception as e:  # отчёт должен собраться, даже если с источниками беда
+        return {'error': str(e)[:300]}
 
 
 def recent_errors(hours: int = 24, limit: int = 50) -> list:
@@ -185,5 +181,5 @@ def report(hours: int = 24) -> dict:
         rep['runs_note'] = str(e)
     rep['episodes'] = episodes(limit=15)
     rep['costs'] = costs.summary(7)
-    rep['sources'] = sources()[:50]
+    rep['sources'] = sources()
     return logs.redact(rep)
