@@ -278,7 +278,16 @@ async def sources_add(request: Request, user=Depends(auth.current_user)):
     b = await _body(request)
     return await run_in_threadpool(_src_errors, sources.add, str(b.get('link', '')), b.get('name'), b.get('direction_id') or 'news',
                                    b.get('weight', 1), bool(b.get('enabled', True)), str(b.get('note') or ''), user['login'],
-                                   user['workspace_id'])
+                                   user['workspace_id'], b.get('role') or None)
+
+
+@app.post('/api/sources/enable')
+async def sources_enable(request: Request, user=Depends(auth.current_user)):
+    """Включить или выключить разом: все, одну группу (role) или без группы (role='none')."""
+    auth.require_write(request)
+    b = await _body(request)
+    return await run_in_threadpool(_src_errors, sources.set_enabled, bool(b.get('enabled')), b.get('role') or 'all',
+                                   user['login'], user['workspace_id'])
 
 
 @app.patch('/api/sources/{sid}')

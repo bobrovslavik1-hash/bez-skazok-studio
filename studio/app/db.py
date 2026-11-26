@@ -44,6 +44,7 @@ CREATE TABLE IF NOT EXISTS studio_sources (
   last_run_at TIMESTAMPTZ, last_ok_at TIMESTAMPTZ, last_error TEXT, last_new INT, fails INT NOT NULL DEFAULT 0, alert_at TIMESTAMPTZ,
   created_by TEXT, created_at TIMESTAMPTZ DEFAULT now(), updated_at TIMESTAMPTZ DEFAULT now(),
   UNIQUE (workspace_id, direction_id, type, url));
+ALTER TABLE studio_sources ADD COLUMN IF NOT EXISTS role TEXT;
 DO $$ BEGIN
   IF to_regclass('k_items') IS NOT NULL THEN
     ALTER TABLE k_items ADD COLUMN IF NOT EXISTS source_id BIGINT;

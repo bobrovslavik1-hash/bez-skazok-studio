@@ -95,18 +95,27 @@ async def check_source(link: str) -> dict:
 
 @mcp.tool()
 async def add_source(link: str, name: str | None = None, direction_id: str = 'news', weight: int = 1, enabled: bool = True,
-                     note: str = '') -> dict:
+                     note: str = '', role: str | None = None) -> dict:
     """Добавить источник по ссылке (сайт, t.me/канал, youtube.com/@канал) и сразу собрать первые материалы.
-    weight: 1 — обычный, 2 — важный, 3 — главный. Добавляй только те источники, о которых попросил человек."""
-    return await _run(_src_call, sources.add, link, name, direction_id, weight, enabled, note, 'claude-mcp')
+    weight: 1 — обычный, 2 — важный, 3 — главный. role — группа: official (первоисточник), ua_media, front, ru_inside,
+    world, opinion (мнения, не факты), signal (пропаганда/непроверенное, только как «утверждают»).
+    Добавляй только те источники, о которых попросил человек."""
+    return await _run(_src_call, sources.add, link, name, direction_id, weight, enabled, note, 'claude-mcp', 'main', role)
 
 
 @mcp.tool()
 async def update_source(source_id: int, enabled: bool | None = None, name: str | None = None, weight: int | None = None,
-                        direction_id: str | None = None, note: str | None = None) -> dict:
-    """Изменить источник: включить/выключить, переименовать, поменять важность (1–3) или направление."""
-    changes = {'enabled': enabled, 'name': name, 'weight': weight, 'direction_id': direction_id, 'note': note}
+                        direction_id: str | None = None, note: str | None = None, role: str | None = None) -> dict:
+    """Изменить источник: включить/выключить, переименовать, поменять важность (1–3), направление или группу (role)."""
+    changes = {'enabled': enabled, 'name': name, 'weight': weight, 'direction_id': direction_id, 'note': note, 'role': role}
     return await _run(_src_call, sources.update, source_id, changes, 'claude-mcp')
+
+
+@mcp.tool()
+async def set_sources_enabled(enabled: bool, role: str = 'all') -> dict:
+    """Включить или выключить разом: все источники (role='all'), одну группу (official, ua_media, front, ru_inside, world,
+    opinion, signal) или источники без группы (role='none'). Выключенные не собираются и не идут в сценарии."""
+    return await _run(_src_call, sources.set_enabled, enabled, role, 'claude-mcp')
 
 
 @mcp.tool()

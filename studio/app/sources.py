@@ -16,6 +16,16 @@ from . import config, content, db, feeds
 
 log = logging.getLogger('studio.sources')
 WEIGHT_LABEL = {1: 'обычный', 2: 'важный', 3: 'главный'}
+# Роль источника: кем он считается для сценариста. Порядок — как группы на странице.
+ROLES = {
+    'official': ('Первоисточники', 'официальные заявления: считаются подтверждённым фактом'),
+    'ua_media': ('Украинские СМИ', 'новостные ленты: факт — когда его подтверждают два независимых источника'),
+    'front': ('Фронт', 'карты, аналитика и сводки с фронта'),
+    'ru_inside': ('Россия изнутри', 'независимые российские редакции'),
+    'world': ('Мир и США', 'мировые и американские издания'),
+    'opinion': ('Мнения и разборы', 'чужие взгляды для подачи: цитируются как мнение, не как факт'),
+    'signal': ('Только сигнал', 'пропаганда и непроверенные ленты: никогда не подаются как факт, только «утверждают»'),
+}
 DIRECTION_RE = re.compile(r'^[a-z][a-z0-9_-]{1,31}$')
 FAILS_ALERT = 6          # 6 неудач подряд ≈ 3 часа при сборе раз в 30 минут
 SILENT_HOURS = 72        # молчит трое суток — тоже сообщаем
@@ -77,7 +87,8 @@ def list_sources(ws: str = config.WORKSPACE) -> list:
     for s in rows:
         tone, text = _state_of(s)
         s.update(state=tone, state_text=text, type_label=feeds.TYPE_LABEL.get(s['type'], s['type']),
-                 weight_label=WEIGHT_LABEL.get(s['weight'], str(s['weight'])), takes=content.WHAT_WE_TAKE.get(s['type'], ''))
+                 weight_label=WEIGHT_LABEL.get(s['weight'], str(s['weight'])), takes=content.WHAT_WE_TAKE.get(s['type'], ''),
+                 role_label=ROLES.get(s.get('role') or '', ('Без группы', ''))[0])
         for k in ('created_at', 'updated_at', 'last_run_at', 'last_ok_at', 'last_item_at', 'alert_at'):
             s[k] = _iso(s.get(k))
         out.append(s)
@@ -100,9 +111,12 @@ def items(limit: int = 30, source_id: int | None = None) -> list:
     limit = max(1, min(int(limit), 200))
     where, params = ('WHERE k.source_id = %s', [source_id]) if source_id else ('', [])
     content.ensure_columns()
+    # in_script: попадёт ли материал в сценарий — нет, если его источник выключен или удалён (как в процессе К3)
     rows = db.q(f"""SELECT k.id, k.direction_id, k.source_id, k.source_name, k.source_type, k.url, k.title, k.summary, k.media_url,
-            k.published_at, k.collected_at, k.used_in, k.content_kind, length(k.content) AS content_chars, k.content_error
-            FROM k_items k {where} ORDER BY coalesce(k.published_at, k.collected_at) DESC, k.id DESC LIMIT %s""",
+            k.published_at, k.collected_at, k.used_in, k.content_kind, length(k.content) AS content_chars, k.content_error,
+            (k.source_id IS NULL OR coalesce(s.enabled, false)) AS in_script, s.role AS source_role
+            FROM k_items k LEFT JOIN studio_sources s ON s.id = k.source_id {where}
+            ORDER BY coalesce(k.published_at, k.collected_at) DESC, k.id DESC LIMIT %s""",
                 (*params, limit))
     for r in rows:
         r['published_at'], r['collected_at'] = _iso(r['published_at']), _iso(r['collected_at'])
@@ -118,7 +132,8 @@ def collector_state() -> dict:
 
 def overview(ws: str = config.WORKSPACE, source_id: int | None = None) -> dict:
     return {'sources': list_sources(ws), 'directions': directions(ws), 'items': items(40 if source_id else 30, source_id),
-            'source_id': source_id, 'collector': collector_state(), 'what_we_take': content.WHAT_WE_TAKE}
+            'source_id': source_id, 'collector': collector_state(), 'what_we_take': content.WHAT_WE_TAKE,
+            'roles': [{'key': k, 'label': v[0], 'hint': v[1]} for k, v in ROLES.items()]}
 
 
 # ---------- проверка и изменения ----------
@@ -147,6 +162,15 @@ def _clean_weight(v) -> int:
     return w
 
 
+def _clean_role(v):
+    v = str(v or '').strip()
+    if not v:
+        return None
+    if v not in ROLES:
+        raise ValueError('Неизвестная группа источника')
+    return v
+
+
 def _clean_direction(v) -> str:
     v = str(v or 'news').strip().lower()
     if not DIRECTION_RE.match(v):
@@ -155,21 +179,21 @@ def _clean_direction(v) -> str:
 
 
 def add(link: str, name: str | None = None, direction_id: str = 'news', weight: int = 1, enabled: bool = True,
-        note: str = '', actor: str = '?', ws: str = config.WORKSPACE) -> dict:
+        note: str = '', actor: str = '?', ws: str = config.WORKSPACE, role: str | None = None) -> dict:
     """Добавить источник по ссылке. Ссылка проверяется (или берётся недавняя проверка), потом сразу первый сбор."""
     link = (link or '').strip()
     hit = _checked.get(link)
     r = hit[1] if hit and time.time() - hit[0] < 900 else check(link)
-    direction_id, weight = _clean_direction(direction_id), _clean_weight(weight)
+    direction_id, weight, role = _clean_direction(direction_id), _clean_weight(weight), _clean_role(role)
     name = _clean_name(name or r['name'])
-    row = db.q1("""INSERT INTO studio_sources (workspace_id, direction_id, type, url, name, site_url, weight, enabled, note, created_by)
-        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s) ON CONFLICT (workspace_id, direction_id, type, url) DO NOTHING RETURNING id""",
-                (ws, direction_id, r['type'], r['key'], name, r.get('site_url'), weight, bool(enabled), (note or '')[:300] or None, actor))
+    row = db.q1("""INSERT INTO studio_sources (workspace_id, direction_id, type, url, name, site_url, weight, enabled, note, created_by, role)
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s) ON CONFLICT (workspace_id, direction_id, type, url) DO NOTHING RETURNING id""",
+                (ws, direction_id, r['type'], r['key'], name, r.get('site_url'), weight, bool(enabled), (note or '')[:300] or None, actor, role))
     if not row:
         ex = db.q1('SELECT id, name FROM studio_sources WHERE workspace_id = %s AND direction_id = %s AND type = %s AND url = %s',
                    (ws, direction_id, r['type'], r['key']))
         raise ValueError(f'Такой источник уже есть: «{ex["name"] if ex else name}»')
-    db.audit(actor, 'source_add', {'id': row['id'], 'name': name, 'type': r['type'], 'url': r['key']}, ws)
+    db.audit(actor, 'source_add', {'id': row['id'], 'name': name, 'type': r['type'], 'url': r['key'], 'role': role}, ws)
     if enabled:
         collect_in_background(row['id'])
     return get(row['id'], ws)
@@ -197,6 +221,8 @@ def update(source_id: int, changes: dict, actor: str = '?', ws: str = config.WOR
         done['enabled'] = bool(changes['enabled'])
     if changes.get('note') is not None:
         done['note'] = str(changes['note'])[:300] or None
+    if 'role' in changes and changes.get('role') is not None:
+        done['role'] = _clean_role(changes['role'])
     if not done:
         raise ValueError('Нечего менять')
     for k, v in done.items():
@@ -214,6 +240,25 @@ def update(source_id: int, changes: dict, actor: str = '?', ws: str = config.WOR
     if done.get('enabled') is True and not cur['enabled']:
         collect_in_background(int(source_id))
     return get(source_id, ws)
+
+
+def set_enabled(enabled: bool, role: str | None = 'all', actor: str = '?', ws: str = config.WORKSPACE) -> dict:
+    """Включить или выключить разом: все источники (role='all'), одну группу или те, что без группы (role='none')."""
+    if role in (None, 'all'):
+        n = db.x('UPDATE studio_sources SET enabled = %s, updated_at = now() WHERE workspace_id = %s AND enabled <> %s',
+                 (bool(enabled), ws, bool(enabled)))
+    elif role == 'none':
+        n = db.x('UPDATE studio_sources SET enabled = %s, updated_at = now() WHERE workspace_id = %s AND role IS NULL AND enabled <> %s',
+                 (bool(enabled), ws, bool(enabled)))
+    else:
+        role = _clean_role(role)
+        n = db.x('UPDATE studio_sources SET enabled = %s, updated_at = now() WHERE workspace_id = %s AND role = %s AND enabled <> %s',
+                 (bool(enabled), ws, role, bool(enabled)))
+    if enabled and n:
+        db.x('UPDATE studio_sources SET fails = 0 WHERE workspace_id = %s AND enabled', (ws,))
+        collect_in_background(None, 'enabled')
+    db.audit(actor, 'sources_enable' if enabled else 'sources_disable', {'role': role, 'changed': n}, ws)
+    return {'changed': n, 'enabled': bool(enabled), 'role': role}
 
 
 def remove(source_id: int, actor: str = '?', ws: str = config.WORKSPACE) -> dict:

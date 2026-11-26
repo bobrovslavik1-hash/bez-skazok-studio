@@ -419,11 +419,84 @@
   const SRC_IC = { rss: I.globe, telegram: I.tg, youtube: I.yt };
   const SRC_TONE = { ok: 'ok', err: 'err', warn: 'warn', off: '', new: 'info' };
   const WEIGHTS = [[1, 'обычный'], [2, 'важный'], [3, 'главный']];
+  // Стартовый набор: строка «# Группа» задаёт группу для ссылок под ней. Сайты — главной страницей: ленту Студия найдёт сама.
+  const STARTER = `# Первоисточники
+https://t.me/kpszsu | Повітряні сили ЗСУ
+https://t.me/GeneralStaffZSU | Генштаб ЗСУ
+https://t.me/V_Zelenskiy_official | Зеленський
+https://www.whitehouse.gov/ | Белый дом
+http://kremlin.ru/ | Кремль
+
+# Украинские СМИ
+https://t.me/suspilnenews | Суспільне Новини
+https://www.pravda.com.ua/ | Українська правда
+https://t.me/uniannet | УНІАН
+https://www.rbc.ua/ | РБК-Україна
+https://interfax.com.ua/ | Інтерфакс-Україна
+https://www.ukrinform.ua/ | Укрінформ
+
+# Фронт
+https://t.me/DeepStateUA | DeepState
+https://understandingwar.org/ | ISW
+https://militarnyi.com/uk/ | Мілітарний
+https://defence-ua.com/ | Defense Express
+
+# Россия изнутри
+https://meduza.io/ | Медуза
+https://theins.ru/ | The Insider
+https://t.me/agentstvonews | Агентство
+https://verstka.media/ | Вёрстка
+https://zona.media/ | Медиазона
+https://t.me/astrapress | ASTRA
+https://www.svoboda.org/ | Радио Свобода
+https://www.moscowtimes.ru/ | The Moscow Times
+
+# Мир и США
+https://kyivindependent.com/ | Kyiv Independent
+https://www.axios.com/ | Axios
+https://www.politico.eu/ | Politico Europe
+
+# Мнения и разборы
+https://www.youtube.com/@MackNack | Майкл Наки
+https://www.youtube.com/@portnikov | Виталий Портников
+
+# Только сигнал
+https://t.me/truexanewsua | Труха Україна
+https://t.me/mod_russia | Минобороны РФ
+https://t.me/rybar | Рыбарь
+https://t.me/breakingmash | Mash`;
+
   function hostOf(s) {
     if (s.type === 'telegram') return '@' + s.url;
     if (s.type === 'youtube' && !s.site_url) return 'youtube.com';
     try { return new URL(s.site_url || s.url).host.replace(/^www\./, ''); } catch (e) { return s.url; }
   }
+  const roleOptions = (roles, cur, empty = 'Без группы') => `<option value="">${esc(empty)}</option>` +
+    roles.map(r => `<option value="${esc(r.key)}"${r.key === cur ? ' selected' : ''}>${esc(r.label)}</option>`).join('');
+  function roleFromHeader(text, roles) {
+    const t = text.toLowerCase();
+    const hit = roles.find(r => t.includes(r.label.toLowerCase()) || t.includes(r.key));
+    if (hit) return hit.key;
+    const map = [['первоисточ', 'official'], ['официал', 'official'], ['украин', 'ua_media'], ['фронт', 'front'], ['росси', 'ru_inside'],
+      ['мир', 'world'], ['сша', 'world'], ['мнени', 'opinion'], ['разбор', 'opinion'], ['сигнал', 'signal'], ['пропаганд', 'signal']];
+    const m = map.find(([k]) => t.includes(k));
+    return m ? m[1] : '';
+  }
+  function parseBulk(text, roles, defRole) {
+    const out = [];
+    let role = defRole || '';
+    for (const raw of String(text || '').split(/\r?\n/)) {
+      const line = raw.trim();
+      if (!line) continue;
+      if (line.startsWith('#')) { role = roleFromHeader(line.slice(1), roles); continue; }
+      const parts = line.split('|').map(x => x.trim());
+      let link = parts[0], name = parts[1] || '';
+      if (!/[./@]/.test(link) && parts[1] && /[./@]/.test(parts[1])) { link = parts[1]; name = parts[0]; }
+      out.push({ link, name, role });
+    }
+    return out;
+  }
+
   function srcRow(s, dirs) {
     const st = s.enabled && (s.state === 'ok' || s.state === 'warn')
       ? `<span>${s.d1} за сутки · ${s.d7} за неделю${s.last_item_at ? ' · последний ' + when(s.last_item_at) : ''}</span>` : '';
@@ -437,15 +510,16 @@
         <div class="meta"><span>Берём: ${esc(s.takes || '—')}</span>${s.total ? `<a href="#/sources?src=${s.id}">материалы (${s.total}) →</a>` : ''}</div>
       </div>
       <div class="src-act">
-        <label class="switch" title="${s.enabled ? 'Выключить' : 'Включить'}"><input type="checkbox" data-act="toggle" aria-label="Включён"${s.enabled ? ' checked' : ''}><i></i></label>
+        <label class="switch" title="${s.enabled ? 'Выключить' : 'Включить'}"><input type="checkbox" data-toggle="${s.id}" aria-label="Включён"${s.enabled ? ' checked' : ''}><i></i></label>
         <button class="btn small icon" data-act="edit" title="Изменить" aria-label="Изменить">${I.pencil}</button>
         <button class="btn small icon" data-act="del" title="Удалить" aria-label="Удалить">${I.trash}</button>
       </div></li>`;
   }
-  function srcEditForm(s, dirs) {
+  function srcEditForm(s, dirs, roles) {
     return `<div class="src-ic ${esc(s.type)}">${SRC_IC[s.type] || I.rss}</div>
       <div class="grow src-form">
         <input class="input" data-f="name" value="${esc(s.name)}" maxlength="120" placeholder="Название">
+        <select class="input" data-f="role" aria-label="Группа">${roleOptions(roles, s.role || '')}</select>
         <select class="input" data-f="weight">${WEIGHTS.map(([v, t]) => `<option value="${v}"${v === s.weight ? ' selected' : ''}>Важность: ${t}</option>`).join('')}</select>
         ${dirs.length > 1 ? `<select class="input" data-f="direction_id">${dirs.map(x => `<option${x === s.direction_id ? ' selected' : ''}>${esc(x)}</option>`).join('')}</select>` : ''}
       </div>
@@ -458,8 +532,8 @@
     if (it.content_error) return badge('текст не достали', 'warn');
     return badge('текст скоро', 'plain');
   }
-  const itemRow = it => `<li class="click" data-item="${it.id}"><div class="grow"><div class="title">${esc(it.title || it.url)}</div>
-    <div class="meta"><span>${esc(it.source_name || '—')}</span><span>${when(it.published_at || it.collected_at)}</span>${itemBadge(it)}${it.used_in ? badge('в выпуске', 'ok') : ''}</div></div></li>`;
+  const itemRow = it => `<li class="click${it.in_script === false ? ' off' : ''}" data-item="${it.id}"><div class="grow"><div class="title">${esc(it.title || it.url)}</div>
+    <div class="meta"><span>${esc(it.source_name || '—')}</span><span>${when(it.published_at || it.collected_at)}</span>${itemBadge(it)}${it.source_role === 'signal' ? badge('только сигнал', 'warn') : ''}${it.in_script === false ? badge('источник выключен — не в сценарии', 'plain') : ''}${it.used_in ? badge('в выпуске', 'ok') : ''}</div></div></li>`;
 
   function ytLink(url, sec) {
     const m = String(url || '').match(/[?&]v=([A-Za-z0-9_-]{11})/);
@@ -505,32 +579,49 @@
 
   async function pageSources(view, params) {
     const srcId = params && params.get ? params.get('src') : null;
-    const actions = `<button class="btn" id="collect">${I.refresh}Собрать сейчас</button><button class="btn primary" id="addsrc">${I.plus}Добавить источник</button>`;
-    const title = 'Источники', sub = 'Сайты, Telegram- и YouTube-каналы, откуда конвейер берёт новости';
+    const actions = `<button class="btn" id="collect">${I.refresh}Собрать сейчас</button><button class="btn" id="bulksrc">${I.plus}Добавить списком</button>` +
+      `<button class="btn primary" id="addsrc">${I.plus}Добавить источник</button>`;
+    const title = 'Источники', sub = 'Сайты, Telegram- и YouTube-каналы, из которых конвейер берёт новости';
     if (!view.querySelector('.src-page')) view.innerHTML = head(title, sub, actions) + loading();
     let d;
     try { d = await api('/api/sources' + (srcId ? '?src=' + encodeURIComponent(srcId) : '')); } catch (e) { view.innerHTML = head(title, sub) + failBox(e.message); return; }
-    const list = d.sources || [], dirs = d.directions || ['news'], col = d.collector || {}, items = d.items || [];
+    const list = d.sources || [], dirs = d.directions || ['news'], col = d.collector || {}, items = d.items || [], roles = d.roles || [];
     const on = list.filter(s => s.enabled).length;
     const one = srcId ? list.find(s => String(s.id) === String(srcId)) : null;
     const yt = col.youtube_transcripts || {};
-    const ytNote = list.some(s => s.type === 'youtube')
+    const ytNote = list.some(s => s.type === 'youtube' && s.enabled)
       ? (yt.status === 'blocked' ? `<div class="note warnnote" style="margin-bottom:16px">YouTube не отдаёт расшифровки нашему серверу, поэтому из видео пока берутся название и описание. Расшифровку и суть видео подключим через Apify — это следующий шаг.</div>`
         : yt.status === 'ok' ? `<div class="note" style="margin-bottom:16px">Расшифровки YouTube работают: у новых видео будет текст того, что в них говорят.</div>` : '')
       : '';
+    // группы: в порядке ролей, потом «без группы»; внутри — сначала включённые
+    const groups = roles.map(r => ({ ...r, list: list.filter(s => s.role === r.key) }));
+    const loose = list.filter(s => !s.role || !roles.some(r => r.key === s.role));
+    if (loose.length) groups.push({ key: 'none', label: 'Без группы', hint: 'отнеси источник в группу через карандаш — так сценарист точнее понимает, чему верить', list: loose });
+    const groupCard = g => {
+      const n = g.list.length, gon = g.list.filter(s => s.enabled).length;
+      const sorted = [...g.list].sort((a, b) => (b.enabled - a.enabled) || a.name.localeCompare(b.name, 'ru'));
+      return `<div class="card src-group${g.key === 'signal' ? ' sig' : ''}" data-role="${esc(g.key)}">
+        <div class="card-h"><div class="grow"><h2>${esc(g.label)} <span class="muted cnt">· включено ${gon} из ${n}</span></h2><div class="muted small">${esc(g.hint)}</div></div>
+          <label class="switch" title="${gon ? 'Выключить всю группу' : 'Включить всю группу'}"><input type="checkbox" data-group="${esc(g.key)}" aria-label="Вся группа"${gon === n ? ' checked' : ''}${gon && gon < n ? ' data-mixed="1"' : ''}><i></i></label></div>
+        <ul class="rows src-list">${sorted.map(s => srcRow(s, dirs)).join('')}</ul></div>`;
+    };
+    const summary = `<div class="card src-sum" style="margin-bottom:16px"><div class="card-b">
+        <div class="sum-row">
+          <div class="sum-num"><span class="big-num">${on}</span><span class="muted"> из ${list.length}</span><div class="muted small">источников читает конвейер</div></div>
+          <div class="sum-text">Включённые Студия собирает каждые 30 минут, и сценарий пишется только по ним. Выключенные не собираются и в сценарий не попадают. Сбор бесплатный.
+            <div class="muted small" style="margin-top:6px">${col.running ? badge('идёт сбор', 'warn live') : `последний сбор: ${col.last_run_at ? when(col.last_run_at) : 'ещё не было'}`}</div></div>
+          <div class="actions sum-act">${list.length ? `<button class="btn small" data-all="on">Включить все</button><button class="btn small" data-all="off">Выключить все</button>` : ''}</div>
+        </div></div></div>`;
+
     view.innerHTML = head(title, sub, actions) + `<div class="src-page">
-      <div id="addbox"></div>${ytNote}
-      <div class="card" style="margin-bottom:16px">
-        <div class="card-h"><h2>${list.length ? `Источники · включено ${on} из ${list.length}` : 'Источники'}</h2>
-          <span class="muted small">${col.running ? badge('идёт сбор', 'warn live') : `сбор каждые ${col.every_min || 30} мин${col.last_run_at ? ' · последний ' + when(col.last_run_at) : ''}`}</span></div>
-        ${list.length ? `<ul class="rows src-list">${list.map(s => srcRow(s, dirs)).join('')}</ul>`
-          : `<div class="empty"><b>Источников пока нет</b>Нажми «Добавить источник» и вставь ссылку на сайт, Telegram- или YouTube-канал.</div>`}
-      </div>
-      <div class="card" id="items"><div class="card-h"><h2>${one ? 'Материалы: ' + esc(one.name) : 'Последние материалы'}</h2>
+      <div id="addbox"></div>${ytNote}${summary}
+      ${list.length ? `<div class="src-groups">${groups.filter(g => g.list.length).map(groupCard).join('')}</div>`
+        : `<div class="card" style="margin-bottom:16px"><div class="empty"><b>Источников пока нет</b>Нажми «Добавить списком» → «Вставить стартовый набор» — это 30 проверенных источников по группам. Или добавь по одной ссылке.</div></div>`}
+      <div class="card" id="items" style="margin-top:16px"><div class="card-h"><h2>${one ? 'Материалы: ' + esc(one.name) : 'Последние материалы'}</h2>
           <span class="muted small">${one ? '<a href="#/sources">показать все →</a>' : 'нажми на материал, чтобы увидеть, что внутри'}</span></div>
         ${items.length ? `<ul class="rows item-list">${items.map(itemRow).join('')}</ul>` : '<div class="empty">Пока пусто — материалы появятся после первого сбора.</div>'}
-      </div>
-      <p class="faint small" style="margin:14px 2px 0">Лист sources в Google Таблице больше не используется: источники теперь живут здесь.</p></div>`;
+      </div></div>`;
+    view.querySelectorAll('input[data-mixed]').forEach(cb => { cb.indeterminate = true; });
 
     $('#collect').addEventListener('click', async ev => {
       const b = ev.currentTarget;
@@ -542,55 +633,133 @@
       } catch (e) { toast(e.message, true); }
       setTimeout(() => { b.disabled = false; }, 4000);
     });
-    $('#addsrc').addEventListener('click', () => openAddSource(view, dirs));
+    $('#addsrc').addEventListener('click', () => openAddSource(view, dirs, roles));
+    $('#bulksrc').addEventListener('click', () => openBulk(view, roles, !list.length));
     const itemsEl = $('.item-list', view);
     if (itemsEl) itemsEl.addEventListener('click', ev => { const li = ev.target.closest('li[data-item]'); if (li) openItem(li.dataset.item); });
     if (one) $('#items').scrollIntoView({ block: 'start' });
 
-    const listEl = $('.src-list', view);
-    if (!listEl) return;
-    listEl.addEventListener('click', async ev => {
+    const page = $('.src-page', view);
+    page.addEventListener('click', async ev => {
+      const all = ev.target.closest('button[data-all]');
+      if (all) {
+        const enable = all.dataset.all === 'on';
+        if (!enable && !confirm('Выключить все источники? Конвейер перестанет собирать новости, пока не включишь хотя бы один.')) return;
+        all.disabled = true;
+        try { const r = await api('/api/sources/enable', { body: { enabled: enable, role: 'all' } }); toast(enable ? `Включено: ${r.changed}` : `Выключено: ${r.changed}`); pageSources(view, hashParams()); if (enable) refreshSources(view); }
+        catch (e) { toast(e.message, true); all.disabled = false; }
+        return;
+      }
       const btn = ev.target.closest('button[data-act]');
       if (!btn) return;
-      const li = btn.closest('li[data-id]'), id = Number(li.dataset.id), s = list.find(x => x.id === id);
+      const li = btn.closest('li[data-id]');
+      if (!li) return;
+      const id = Number(li.dataset.id), s = list.find(x => x.id === id);
       const act = btn.dataset.act;
       if (act === 'edit') {
         li.classList.add('editing');
-        li.innerHTML = srcEditForm(s, dirs);
+        li.innerHTML = srcEditForm(s, dirs, roles);
         $('[data-f=name]', li).focus();
       } else if (act === 'cancel') {
         li.outerHTML = srcRow(s, dirs);
       } else if (act === 'save') {
-        const body = { name: $('[data-f=name]', li).value, weight: Number($('[data-f=weight]', li).value) };
+        const body = { name: $('[data-f=name]', li).value, weight: Number($('[data-f=weight]', li).value), role: $('[data-f=role]', li).value };
         const dsel = $('[data-f=direction_id]', li);
         if (dsel) body.direction_id = dsel.value;
         btn.disabled = true;
         try { await api('/api/sources/' + id, { method: 'PATCH', body }); toast('Сохранено'); pageSources(view, hashParams()); }
         catch (e) { toast(e.message, true); btn.disabled = false; }
       } else if (act === 'del') {
-        if (!confirm(`Удалить источник «${s.name}»?\nУже собранные материалы останутся.`)) return;
+        if (!confirm(`Удалить источник «${s.name}»?\nУже собранные материалы останутся, но в сценарий больше не попадут.`)) return;
         btn.disabled = true;
         try { await api('/api/sources/' + id, { method: 'DELETE' }); toast('Источник удалён'); pageSources(view, hashParams()); }
         catch (e) { toast(e.message, true); btn.disabled = false; }
       }
     });
-    listEl.addEventListener('change', async ev => {
-      const cb = ev.target.closest('input[data-act=toggle]');
-      if (!cb) return;
-      const id = Number(cb.closest('li[data-id]').dataset.id);
-      cb.disabled = true;
-      try {
-        await api('/api/sources/' + id, { method: 'PATCH', body: { enabled: cb.checked } });
-        toast(cb.checked ? 'Включён — собираю свежее' : 'Выключен: больше не собирается');
-        pageSources(view, hashParams());
-        if (cb.checked) refreshSources(view);
-      } catch (e) { cb.checked = !cb.checked; cb.disabled = false; toast(e.message, true); }
+    page.addEventListener('change', async ev => {
+      const cb = ev.target;
+      if (cb.dataset.toggle) {
+        cb.disabled = true;
+        try {
+          await api('/api/sources/' + cb.dataset.toggle, { method: 'PATCH', body: { enabled: cb.checked } });
+          toast(cb.checked ? 'Включён — собираю свежее' : 'Выключен: не собирается и в сценарий не попадает');
+          pageSources(view, hashParams());
+          if (cb.checked) refreshSources(view);
+        } catch (e) { cb.checked = !cb.checked; cb.disabled = false; toast(e.message, true); }
+      } else if (cb.dataset.group) {
+        const enable = cb.dataset.mixed ? true : cb.checked;
+        cb.disabled = true;
+        try {
+          const r = await api('/api/sources/enable', { body: { enabled: enable, role: cb.dataset.group } });
+          toast(enable ? `Группа включена (${r.changed})` : `Группа выключена (${r.changed})`);
+          pageSources(view, hashParams());
+          if (enable) refreshSources(view);
+        } catch (e) { cb.checked = !cb.checked; cb.disabled = false; toast(e.message, true); }
+      }
     });
   }
 
-  function openAddSource(view, dirs) {
+  function openBulk(view, roles, fillStarter) {
     const box = $('#addbox');
-    if (box.firstChild) { $('#srclink').focus(); return; }
+    box.innerHTML = `<div class="card add-src" style="margin-bottom:16px">
+      <div class="card-h"><h2>Добавить списком</h2><button class="close" data-x aria-label="Закрыть">×</button></div>
+      <div class="card-b">
+        <div class="muted small" style="margin-bottom:8px">По одной ссылке в строке, можно с названием: <span class="mono">ссылка | название</span>.
+          Строка <span class="mono"># Фронт</span> задаёт группу для ссылок под ней. Студия проверит каждую ссылку и добавит те, что работают.</div>
+        <textarea class="input area" id="bulktext" rows="12" spellcheck="false" placeholder="# Фронт&#10;https://t.me/DeepStateUA | DeepState&#10;https://militarnyi.com/uk/"></textarea>
+        <div class="form-row" style="margin-top:10px">
+          <select class="input" id="bulkrole" aria-label="Группа по умолчанию">${roleOptions(roles, '', 'Без заголовка — без группы')}</select>
+          <button class="btn" id="bulkstarter">Вставить стартовый набор</button>
+          <button class="btn primary" id="bulkgo">Проверить и добавить</button>
+        </div>
+        <div id="bulkres"></div>
+      </div></div>`;
+    const ta = $('#bulktext');
+    if (fillStarter) ta.value = STARTER;
+    ta.focus();
+    $('[data-x]', box).addEventListener('click', () => { box.innerHTML = ''; });
+    $('#bulkstarter').addEventListener('click', () => { ta.value = STARTER; });
+    $('#bulkgo').addEventListener('click', async ev => {
+      const go = ev.currentTarget;
+      const todo = parseBulk(ta.value, roles, $('#bulkrole').value);
+      if (!todo.length) { toast('Вставь хотя бы одну ссылку', true); return; }
+      go.disabled = true; $('#bulkstarter').disabled = true; ta.readOnly = true;
+      const res = $('#bulkres');
+      const label = r => r ? (roles.find(x => x.key === r) || {}).label || r : 'без группы';
+      res.innerHTML = `<div class="bulk-sum muted small" id="bulksum"></div><ul class="bulk-list">${todo.map((t, i) => `<li id="bk${i}"><span class="bk-st">…</span>
+        <span class="bk-name">${esc(t.name || t.link)}</span><span class="faint small">${esc(label(t.role))}</span><span class="bk-msg muted small">ждёт проверки</span></li>`).join('')}</ul>`;
+      const tally = { ok: 0, dup: 0, err: 0 };
+      const sum = () => { $('#bulksum').textContent = `Добавлено: ${tally.ok} · уже были: ${tally.dup} · не получилось: ${tally.err} · осталось: ${todo.length - tally.ok - tally.dup - tally.err}`; };
+      sum();
+      let next = 0;
+      const worker = async () => {
+        while (next < todo.length) {
+          const i = next++, t = todo[i], li = $('#bk' + i);
+          li.querySelector('.bk-msg').textContent = 'проверяю…';
+          try {
+            const s = await api('/api/sources', { body: { link: t.link, name: t.name || undefined, role: t.role || undefined } });
+            li.className = 'ok'; li.querySelector('.bk-st').textContent = '✓';
+            li.querySelector('.bk-msg').textContent = `добавлен: ${s.type_label}`;
+            tally.ok++;
+          } catch (e) {
+            const dup = /уже есть/.test(e.message);
+            li.className = dup ? 'dup' : 'err'; li.querySelector('.bk-st').textContent = dup ? '=' : '✗';
+            li.querySelector('.bk-msg').textContent = e.message;
+            dup ? tally.dup++ : tally.err++;
+          }
+          sum();
+        }
+      };
+      await Promise.all([worker(), worker(), worker()]);
+      go.disabled = false; $('#bulkstarter').disabled = false; ta.readOnly = false;
+      toast(`Готово: добавлено ${tally.ok}, уже были ${tally.dup}, не получилось ${tally.err}`, tally.err > 0 && !tally.ok);
+      res.insertAdjacentHTML('beforeend', `<div class="form-row" style="margin-top:12px"><button class="btn primary" id="bulkdone">Показать список источников</button></div>`);
+      $('#bulkdone').addEventListener('click', () => { box.innerHTML = ''; pageSources(view, hashParams()); refreshSources(view); });
+    });
+  }
+
+  function openAddSource(view, dirs, roles) {
+    const box = $('#addbox');
     box.innerHTML = `<div class="card add-src" style="margin-bottom:16px">
       <div class="card-h"><h2>Новый источник</h2><button class="close" data-x aria-label="Закрыть">×</button></div>
       <div class="card-b">
@@ -622,6 +791,7 @@
         ${r.items.length ? `<ul class="chk-items">${r.items.map(i => `<li><a href="${esc(i.url)}" target="_blank" rel="noopener">${esc(i.title)}</a><span class="faint">${i.published_at ? when(i.published_at) : ''}</span></li>`).join('')}</ul>` : ''}
         <div class="form-row" style="margin-top:14px">
           <input class="input" id="nname" value="${esc(r.name)}" maxlength="120" style="flex:1;min-width:200px" placeholder="Название" aria-label="Название">
+          <select class="input" id="nrole" aria-label="Группа">${roleOptions(roles, '')}</select>
           <select class="input" id="nweight" aria-label="Важность">${WEIGHTS.map(([v, t]) => `<option value="${v}">Важность: ${t}</option>`).join('')}</select>
           ${dirs.length > 1 ? `<select class="input" id="ndir" aria-label="Направление">${dirs.map(x => `<option>${esc(x)}</option>`).join('')}</select>` : ''}
           <button class="btn primary" id="nsave">Сохранить и включить</button>
@@ -629,7 +799,7 @@
       $('#nsave').addEventListener('click', async ev2 => {
         const b = ev2.currentTarget;
         b.disabled = true;
-        const body = { link, name: $('#nname').value, weight: Number($('#nweight').value) };
+        const body = { link, name: $('#nname').value, weight: Number($('#nweight').value), role: $('#nrole').value || undefined };
         if ($('#ndir')) body.direction_id = $('#ndir').value;
         try {
           const s = await api('/api/sources', { body });
