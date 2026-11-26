@@ -18,6 +18,7 @@ from . import config
 
 UA = 'Mozilla/5.0 (compatible; BezSkazokStudio/1.0; +https://github.com/bobrovslavik1-hash/bez-skazok-studio)'
 MAX_BYTES = 5 * 1024 * 1024
+MAX_TEXT = 40_000
 TYPE_LABEL = {'rss': 'Сайт', 'telegram': 'Telegram', 'youtube': 'YouTube'}
 TG_RE = re.compile(r'^[A-Za-z][A-Za-z0-9_]{3,31}$')
 YT_ID_RE = re.compile(r'^UC[A-Za-z0-9_-]{22}$')
@@ -136,10 +137,12 @@ def entries(d, fresh_hours: int | None = None) -> list:
             m = re.search(r'<(?:video|source|img)[^>]+src="([^"]+)"', body, re.I)
             if m:
                 media = html.unescape(m.group(1))
+        full = _strip(body if len(body) >= len(e.get('summary') or '') else e.get('summary'))
         out.append({
             'url': str(link)[:2000],
             'title': _strip(e.get('title'))[:300],
             'summary': _strip(e.get('summary') or body)[:1500],
+            'text': full[:MAX_TEXT],
             'media_url': media[:2000] or None,
             'published_at': dt.datetime.fromtimestamp(ts, dt.timezone.utc) if ts else None,
         })
@@ -232,6 +235,11 @@ def resolve(link: str) -> dict:
         raise FeedError('Это ссылка-приглашение или закрытый канал. Нужна ссылка на публичный канал вида t.me/имя_канала')
     if re.match(r'^(?:https?://)?(?:www\.|mobile\.)?(?:x|twitter)\.com(?:/|$)', s, re.I):
         raise FeedError('X (Twitter) пока не подключаем: доступ к нему платный')
+    if re.match(r'^(?:https?://)?(?:[a-z]+\.)?(?:facebook\.com|fb\.com|fb\.me)(?:/|$)', s, re.I):
+        raise FeedError('Facebook пока не подключён: бесплатно читать страницы он не даёт. Подключим через сервис Apify '
+                        '(это следующий шаг). А пока можно добавить сайт или Telegram-канал этого же издания')
+    if re.match(r'^(?:https?://)?(?:www\.)?(?:instagram\.com|tiktok\.com)(?:/|$)', s, re.I):
+        raise FeedError('Instagram и TikTok пока не подключаем. Добавь сайт, Telegram- или YouTube-канал этого автора')
 
     if YT_ID_RE.match(s):
         return _youtube(s)
@@ -297,8 +305,9 @@ def check(link: str) -> dict:
         warning = f'Последний материал был {(dt.datetime.now(dt.timezone.utc) - newest).days} дн. назад — похоже, источник обновляется редко'
     title = feed_title(d, r['type'])
     name = title or (('@' + r['key']) if r['type'] == 'telegram' else urlparse(r['site_url'] or r['key']).netloc or r['key'])
+    from .content import WHAT_WE_TAKE
     return {
-        **r, 'type_label': TYPE_LABEL[r['type']], 'name': name[:120], 'feed_title': title,
+        **r, 'type_label': TYPE_LABEL[r['type']], 'name': name[:120], 'feed_title': title, 'takes': WHAT_WE_TAKE.get(r['type'], ''),
         'count': len(d.entries), 'newest_at': newest.isoformat() if newest else None, 'warning': warning,
         'items': [{'title': i['title'] or '(без заголовка)', 'url': i['url'],
                    'published_at': i['published_at'].isoformat() if i['published_at'] else None} for i in items[:5]],

@@ -3,7 +3,7 @@ import anyio
 from mcp.server.fastmcp import FastMCP
 from mcp.server.transport_security import TransportSecuritySettings
 
-from . import costs, db, feeds, logs, n8n, services, sources
+from . import content, costs, db, feeds, logs, n8n, services, sources
 
 mcp = FastMCP(
     'bez-skazok-studio',
@@ -121,6 +121,13 @@ async def collect_sources(source_id: int | None = None) -> dict:
     res = await _run(sources.collect, source_id, 'claude-mcp')
     await _run(db.audit, 'claude-mcp', 'sources_collect', {'id': source_id})
     return res
+
+
+@mcp.tool()
+async def feed_item(item_id: int) -> dict:
+    """Один материал ленты целиком: полный текст статьи, текст поста или расшифровка видео (content), откуда и когда."""
+    it = await _run(content.item, item_id)
+    return it or {'error': 'нет такого материала'}
 
 
 @mcp.tool()

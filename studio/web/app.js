@@ -434,6 +434,7 @@
         <div class="meta"><a href="${esc(s.site_url || s.url)}" target="_blank" rel="noopener">${esc(hostOf(s))}</a><span>${esc(s.type_label)}</span>
           <span>${esc(s.weight_label)}</span>${dirs.length > 1 ? `<span>${esc(s.direction_id)}</span>` : ''}</div>
         <div class="meta"><span class="st ${SRC_TONE[s.state] || ''}">${esc(s.state_text)}</span>${st}</div>
+        <div class="meta"><span>Берём: ${esc(s.takes || '—')}</span>${s.total ? `<a href="#/sources?src=${s.id}">материалы (${s.total}) →</a>` : ''}</div>
       </div>
       <div class="src-act">
         <label class="switch" title="${s.enabled ? 'Выключить' : 'Включить'}"><input type="checkbox" data-act="toggle" aria-label="Включён"${s.enabled ? ' checked' : ''}><i></i></label>
@@ -450,33 +451,84 @@
       </div>
       <div class="src-act"><button class="btn small primary" data-act="save">Сохранить</button><button class="btn small" data-act="cancel">Отмена</button></div>`;
   }
-  const itemRow = it => `<li><div class="grow"><div class="title"><a href="${esc(it.url)}" target="_blank" rel="noopener">${esc(it.title || it.url)}</a></div>
-    <div class="meta"><span>${esc(it.source_name || '—')}</span><span>${when(it.published_at || it.collected_at)}</span>${it.used_in ? badge('в выпуске', 'ok') : ''}</div></div></li>`;
+  function itemBadge(it) {
+    if (it.content_kind === 'transcript') return badge('расшифровка', 'ok');
+    if (it.content_kind === 'article' || it.content_kind === 'post') return badge('полный текст', 'ok');
+    if (it.content_kind === 'description') return badge('только описание', 'warn');
+    if (it.content_error) return badge('текст не достали', 'warn');
+    return badge('текст скоро', 'plain');
+  }
+  const itemRow = it => `<li class="click" data-item="${it.id}"><div class="grow"><div class="title">${esc(it.title || it.url)}</div>
+    <div class="meta"><span>${esc(it.source_name || '—')}</span><span>${when(it.published_at || it.collected_at)}</span>${itemBadge(it)}${it.used_in ? badge('в выпуске', 'ok') : ''}</div></div></li>`;
 
+  function ytLink(url, sec) {
+    const m = String(url || '').match(/[?&]v=([A-Za-z0-9_-]{11})/);
+    return m ? `https://www.youtube.com/watch?v=${m[1]}&t=${sec}s` : null;
+  }
+  async function openItem(id) {
+    const d = drawer('Материал', '', loading());
+    let it;
+    try { it = await api('/api/items/' + id); } catch (e) { d.querySelector('.d-b').innerHTML = failBox(e.message); return; }
+    d.querySelector('.d-h h2').textContent = it.title || 'Материал';
+    d.querySelector('.d-h h2').insertAdjacentHTML('afterend', `<div class="muted" style="margin-top:4px">${esc(it.src_name || it.source_name || '')} · ${dt(it.published_at || it.collected_at)}</div>`);
+    const isImg = it.media_url && /\.(jpe?g|png|webp|gif)(\?|$)/i.test(it.media_url);
+    let text = '';
+    if (it.content) {
+      text = it.content.split(/\n+/).filter(Boolean).map(line => {
+        let h = esc(line);
+        if (it.content_kind === 'transcript') {
+          h = h.replace(/^\[(\d\d):(\d\d)\]/, (m0, mm, ss) => {
+            const link = ytLink(it.url, Number(mm) * 60 + Number(ss));
+            return link ? `<a class="ts" href="${link}" target="_blank" rel="noopener">${mm}:${ss}</a>` : m0;
+          });
+        }
+        return `<p>${h}</p>`;
+      }).join('');
+    }
+    const why = it.content_error ? `Не получилось достать текст: ${esc(it.content_error)}.` : 'Текст ещё не достали — он появится после следующего сбора.';
+    d.querySelector('.d-b').innerHTML = `
+      <div class="actions" style="margin-bottom:14px"><a class="btn small" href="${esc(it.url)}" target="_blank" rel="noopener">${I.ext}Открыть оригинал</a>
+        ${it.media_url && !isImg ? `<a class="btn small" href="${esc(it.media_url)}" target="_blank" rel="noopener">${I.ext}Фото или видео</a>` : ''}
+        ${it.used_in ? badge('использован в выпуске', 'ok') : ''}</div>
+      ${isImg ? `<img class="item-media" src="${esc(it.media_url)}" alt="" loading="lazy" referrerpolicy="no-referrer">` : ''}
+      ${it.content_kind === 'description' ? `<div class="note warnnote" style="margin-bottom:12px">Это только описание видео. ${esc(it.content_error ? 'Расшифровку взять не получилось: ' + it.content_error + '.' : 'Расшифровку попробуем взять при следующем сборе.')}</div>` : ''}
+      <div class="section-t">${esc(it.content_label || 'Текст')}${it.content_chars ? ` · ${Number(it.content_chars).toLocaleString('ru-RU')} знаков` : ''}</div>
+      ${text ? `<div class="item-text">${text}</div>` : `<p class="muted">${why}</p>${it.summary ? `<div class="item-text"><p>${esc(it.summary)}</p></div>` : ''}`}`;
+  }
+
+  const hashParams = () => new URLSearchParams(location.hash.split('?')[1] || '');
   function refreshSources(view, delays = [6000, 20000]) {
     delays.forEach(ms => setTimeout(() => {
-      if (location.hash.split('?')[0] === '#/sources' && !document.querySelector('.add-src, li.src.editing')) pageSources(view);
+      if (location.hash.split('?')[0] === '#/sources' && !document.querySelector('.add-src, li.src.editing, .drawer')) pageSources(view, hashParams());
     }, ms));
   }
 
-  async function pageSources(view) {
+  async function pageSources(view, params) {
+    const srcId = params && params.get ? params.get('src') : null;
     const actions = `<button class="btn" id="collect">${I.refresh}Собрать сейчас</button><button class="btn primary" id="addsrc">${I.plus}Добавить источник</button>`;
     const title = 'Источники', sub = 'Сайты, Telegram- и YouTube-каналы, откуда конвейер берёт новости';
     if (!view.querySelector('.src-page')) view.innerHTML = head(title, sub, actions) + loading();
     let d;
-    try { d = await api('/api/sources'); } catch (e) { view.innerHTML = head(title, sub) + failBox(e.message); return; }
+    try { d = await api('/api/sources' + (srcId ? '?src=' + encodeURIComponent(srcId) : '')); } catch (e) { view.innerHTML = head(title, sub) + failBox(e.message); return; }
     const list = d.sources || [], dirs = d.directions || ['news'], col = d.collector || {}, items = d.items || [];
     const on = list.filter(s => s.enabled).length;
+    const one = srcId ? list.find(s => String(s.id) === String(srcId)) : null;
+    const yt = col.youtube_transcripts || {};
+    const ytNote = list.some(s => s.type === 'youtube')
+      ? (yt.status === 'blocked' ? `<div class="note warnnote" style="margin-bottom:16px">YouTube не отдаёт расшифровки нашему серверу, поэтому из видео пока берутся название и описание. Расшифровку и суть видео подключим через Apify — это следующий шаг.</div>`
+        : yt.status === 'ok' ? `<div class="note" style="margin-bottom:16px">Расшифровки YouTube работают: у новых видео будет текст того, что в них говорят.</div>` : '')
+      : '';
     view.innerHTML = head(title, sub, actions) + `<div class="src-page">
-      <div id="addbox"></div>
+      <div id="addbox"></div>${ytNote}
       <div class="card" style="margin-bottom:16px">
         <div class="card-h"><h2>${list.length ? `Источники · включено ${on} из ${list.length}` : 'Источники'}</h2>
           <span class="muted small">${col.running ? badge('идёт сбор', 'warn live') : `сбор каждые ${col.every_min || 30} мин${col.last_run_at ? ' · последний ' + when(col.last_run_at) : ''}`}</span></div>
         ${list.length ? `<ul class="rows src-list">${list.map(s => srcRow(s, dirs)).join('')}</ul>`
           : `<div class="empty"><b>Источников пока нет</b>Нажми «Добавить источник» и вставь ссылку на сайт, Telegram- или YouTube-канал.</div>`}
       </div>
-      <div class="card"><div class="card-h"><h2>Последние материалы</h2><span class="muted small">свежее за 48 часов</span></div>
-        ${items.length ? `<ul class="rows">${items.map(itemRow).join('')}</ul>` : '<div class="empty">Пока пусто — материалы появятся после первого сбора.</div>'}
+      <div class="card" id="items"><div class="card-h"><h2>${one ? 'Материалы: ' + esc(one.name) : 'Последние материалы'}</h2>
+          <span class="muted small">${one ? '<a href="#/sources">показать все →</a>' : 'нажми на материал, чтобы увидеть, что внутри'}</span></div>
+        ${items.length ? `<ul class="rows item-list">${items.map(itemRow).join('')}</ul>` : '<div class="empty">Пока пусто — материалы появятся после первого сбора.</div>'}
       </div>
       <p class="faint small" style="margin:14px 2px 0">Лист sources в Google Таблице больше не используется: источники теперь живут здесь.</p></div>`;
 
@@ -491,6 +543,9 @@
       setTimeout(() => { b.disabled = false; }, 4000);
     });
     $('#addsrc').addEventListener('click', () => openAddSource(view, dirs));
+    const itemsEl = $('.item-list', view);
+    if (itemsEl) itemsEl.addEventListener('click', ev => { const li = ev.target.closest('li[data-item]'); if (li) openItem(li.dataset.item); });
+    if (one) $('#items').scrollIntoView({ block: 'start' });
 
     const listEl = $('.src-list', view);
     if (!listEl) return;
@@ -510,12 +565,12 @@
         const dsel = $('[data-f=direction_id]', li);
         if (dsel) body.direction_id = dsel.value;
         btn.disabled = true;
-        try { await api('/api/sources/' + id, { method: 'PATCH', body }); toast('Сохранено'); pageSources(view); }
+        try { await api('/api/sources/' + id, { method: 'PATCH', body }); toast('Сохранено'); pageSources(view, hashParams()); }
         catch (e) { toast(e.message, true); btn.disabled = false; }
       } else if (act === 'del') {
         if (!confirm(`Удалить источник «${s.name}»?\nУже собранные материалы останутся.`)) return;
         btn.disabled = true;
-        try { await api('/api/sources/' + id, { method: 'DELETE' }); toast('Источник удалён'); pageSources(view); }
+        try { await api('/api/sources/' + id, { method: 'DELETE' }); toast('Источник удалён'); pageSources(view, hashParams()); }
         catch (e) { toast(e.message, true); btn.disabled = false; }
       }
     });
@@ -527,7 +582,7 @@
       try {
         await api('/api/sources/' + id, { method: 'PATCH', body: { enabled: cb.checked } });
         toast(cb.checked ? 'Включён — собираю свежее' : 'Выключен: больше не собирается');
-        pageSources(view);
+        pageSources(view, hashParams());
         if (cb.checked) refreshSources(view);
       } catch (e) { cb.checked = !cb.checked; cb.disabled = false; toast(e.message, true); }
     });
@@ -562,6 +617,7 @@
         <div class="chk-h"><div class="src-ic ${esc(r.type)}">${SRC_IC[r.type] || I.rss}</div>
           <div class="grow"><b>${esc(r.feed_title || r.name)}</b><div class="muted small">${esc(r.type_label)} · ${r.count} ${plural(r.count, 'материал', 'материала', 'материалов')} в ленте${r.newest_at ? ' · последний ' + when(r.newest_at) : ''}</div></div>
           ${badge('лента найдена', 'ok')}</div>
+        <div class="muted small" style="margin-top:10px">Что будем брать: <b>${esc(r.takes || '—')}</b></div>
         ${r.warning ? `<div class="note warnnote">${esc(r.warning)}</div>` : ''}
         ${r.items.length ? `<ul class="chk-items">${r.items.map(i => `<li><a href="${esc(i.url)}" target="_blank" rel="noopener">${esc(i.title)}</a><span class="faint">${i.published_at ? when(i.published_at) : ''}</span></li>`).join('')}</ul>` : ''}
         <div class="form-row" style="margin-top:14px">
@@ -579,7 +635,7 @@
           const s = await api('/api/sources', { body });
           toast('Добавлен «' + s.name + '» — собираю первые материалы');
           box.innerHTML = '';
-          pageSources(view);
+          pageSources(view, hashParams());
           refreshSources(view);
         } catch (e) { toast(e.message, true); b.disabled = false; }
       });

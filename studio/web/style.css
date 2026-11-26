@@ -217,6 +217,10 @@ pre.json { background: var(--panel-2); border: 1px solid var(--line-2); border-r
 .chk-items li a { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
 .chk-items li span { flex: none; font-size: 12px; }
 .note.warnnote { margin-top: 10px; border-style: solid; border-color: color-mix(in srgb, var(--warn) 35%, transparent); color: var(--warn); background: var(--warn-soft); }
+.item-text { font-size: 14px; line-height: 1.6; }
+.item-text p { margin: 0 0 10px; }
+.item-text a.ts { font-family: var(--mono); font-size: 12px; margin-right: 6px; padding: 1px 5px; border-radius: 5px; background: var(--accent-soft); }
+.item-media { display: block; max-width: 100%; max-height: 320px; border-radius: var(--radius-sm); margin-bottom: 14px; border: 1px solid var(--line); }
 /* цифры в красном кружке: у «1» в системных шрифтах длинный флажок, и её легко принять за «7» */
 .nav .count, .tabbar .count { font-family: Verdana, Tahoma, var(--font); font-weight: 700; }
 

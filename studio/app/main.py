@@ -12,7 +12,7 @@ from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from starlette.concurrency import run_in_threadpool
 
-from . import auth, config, costs, db, feeds, logs, n8n, services, sources
+from . import auth, config, content, costs, db, feeds, logs, n8n, services, sources
 from .mcp_server import mcp
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s %(name)s %(levelname)s %(message)s')
@@ -253,8 +253,16 @@ def _src_errors(fn, *a, **kw):
 
 
 @app.get('/api/sources')
-def sources_list(user=Depends(auth.current_user)):
-    return sources.overview(user['workspace_id'])
+def sources_list(src: int | None = None, user=Depends(auth.current_user)):
+    return sources.overview(user['workspace_id'], src)
+
+
+@app.get('/api/items/{item_id}')
+def feed_item(item_id: int, user=Depends(auth.current_user)):
+    it = content.item(item_id)
+    if not it:
+        raise HTTPException(404, 'Нет такого материала')
+    return it
 
 
 @app.post('/api/sources/check')

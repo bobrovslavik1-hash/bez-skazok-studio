@@ -12,7 +12,7 @@ from concurrent.futures import ThreadPoolExecutor
 
 from psycopg.types.json import Jsonb
 
-from . import config, db, feeds
+from . import config, content, db, feeds
 
 log = logging.getLogger('studio.sources')
 WEIGHT_LABEL = {1: 'обычный', 2: 'важный', 3: 'главный'}
@@ -77,7 +77,7 @@ def list_sources(ws: str = config.WORKSPACE) -> list:
     for s in rows:
         tone, text = _state_of(s)
         s.update(state=tone, state_text=text, type_label=feeds.TYPE_LABEL.get(s['type'], s['type']),
-                 weight_label=WEIGHT_LABEL.get(s['weight'], str(s['weight'])))
+                 weight_label=WEIGHT_LABEL.get(s['weight'], str(s['weight'])), takes=content.WHAT_WE_TAKE.get(s['type'], ''))
         for k in ('created_at', 'updated_at', 'last_run_at', 'last_ok_at', 'last_item_at', 'alert_at'):
             s[k] = _iso(s.get(k))
         out.append(s)
@@ -99,22 +99,26 @@ def items(limit: int = 30, source_id: int | None = None) -> list:
         return []
     limit = max(1, min(int(limit), 200))
     where, params = ('WHERE k.source_id = %s', [source_id]) if source_id else ('', [])
+    content.ensure_columns()
     rows = db.q(f"""SELECT k.id, k.direction_id, k.source_id, k.source_name, k.source_type, k.url, k.title, k.summary, k.media_url,
-            k.published_at, k.collected_at, k.used_in FROM k_items k {where} ORDER BY coalesce(k.published_at, k.collected_at) DESC, k.id DESC LIMIT %s""",
+            k.published_at, k.collected_at, k.used_in, k.content_kind, length(k.content) AS content_chars, k.content_error
+            FROM k_items k {where} ORDER BY coalesce(k.published_at, k.collected_at) DESC, k.id DESC LIMIT %s""",
                 (*params, limit))
     for r in rows:
         r['published_at'], r['collected_at'] = _iso(r['published_at']), _iso(r['collected_at'])
         r['summary'] = (r['summary'] or '')[:300]
+        r['content_label'] = content.KIND_LABEL.get(r['content_kind'] or '', '')
     return rows
 
 
 def collector_state() -> dict:
     return {'running': _state['running'], 'last_run_at': _iso(_state['last_run_at']), 'last_result': _state['last_result'],
-            'every_min': round(config.COLLECT_EVERY_SEC / 60)}
+            'every_min': round(config.COLLECT_EVERY_SEC / 60), 'youtube_transcripts': content.youtube_state()}
 
 
-def overview(ws: str = config.WORKSPACE) -> dict:
-    return {'sources': list_sources(ws), 'directions': directions(ws), 'items': items(30), 'collector': collector_state()}
+def overview(ws: str = config.WORKSPACE, source_id: int | None = None) -> dict:
+    return {'sources': list_sources(ws), 'directions': directions(ws), 'items': items(40 if source_id else 30, source_id),
+            'source_id': source_id, 'collector': collector_state(), 'what_we_take': content.WHAT_WE_TAKE}
 
 
 # ---------- проверка и изменения ----------
@@ -222,18 +226,36 @@ def remove(source_id: int, actor: str = '?', ws: str = config.WORKSPACE) -> dict
 
 
 # ---------- сбор ----------
+def _feed_text(src_type: str, it: dict) -> tuple:
+    """Текст, который пришёл прямо в ленте: пост Telegram целиком, описание видео, статья (если лента отдаёт её всю)."""
+    text = it.get('text') or ''
+    if src_type == 'telegram' and text:
+        return text, 'post'
+    if src_type == 'youtube' and text:
+        return text, 'description'
+    if src_type == 'rss' and len(text) >= 1500:
+        return text, 'article'
+    return None, None
+
+
 def _save(s: dict, got: list) -> int:
     if not got:
         return 0
+    content.ensure_columns()
     now = dt.datetime.now(dt.timezone.utc)
-    rows = [{'direction_id': s['direction_id'], 'source_id': s['id'], 'source_name': s['name'], 'source_type': s['type'],
-             'weight': s['weight'], 'url': it['url'], 'title': it['title'], 'summary': it['summary'], 'media_url': it['media_url'],
-             'published_at': (it['published_at'] or now).isoformat()} for it in got]
-    res = db.q("""INSERT INTO k_items (direction_id, source_id, source_name, source_type, weight, url, title, summary, media_url, published_at)
+    rows = []
+    for it in got:
+        text, kind = _feed_text(s['type'], it)
+        rows.append({'direction_id': s['direction_id'], 'source_id': s['id'], 'source_name': s['name'], 'source_type': s['type'],
+                     'weight': s['weight'], 'url': it['url'], 'title': it['title'], 'summary': it['summary'],
+                     'media_url': it['media_url'], 'published_at': (it['published_at'] or now).isoformat(),
+                     'content': text, 'content_kind': kind})
+    res = db.q("""INSERT INTO k_items (direction_id, source_id, source_name, source_type, weight, url, title, summary, media_url,
+            published_at, content, content_kind, content_at)
         SELECT x.direction_id, x.source_id, x.source_name, x.source_type, x.weight, x.url, x.title, x.summary, x.media_url,
-               x.published_at::timestamptz
+               x.published_at::timestamptz, x.content, x.content_kind, CASE WHEN x.content IS NULL THEN NULL ELSE now() END
         FROM jsonb_to_recordset(%s::jsonb) AS x(direction_id text, source_id bigint, source_name text, source_type text, weight real,
-             url text, title text, summary text, media_url text, published_at text)
+             url text, title text, summary text, media_url text, published_at text, content text, content_kind text)
         ON CONFLICT (direction_id, url) DO NOTHING RETURNING 1""", (Jsonb(rows),))
     return len(res)
 
@@ -297,8 +319,13 @@ def collect(source_id: int | None = None, reason: str = 'schedule', ws: str = co
                      'WHERE id = %s', (n, s['id']))
                 results.append({'id': s['id'], 'name': s['name'], 'fresh': len(got), 'new': n})
         _alerts([s['id'] for s in srcs])
+        try:
+            texts = content.fill()
+        except Exception:  # тексты дозаполнятся в следующий раз
+            log.exception('тексты материалов')
+            texts = {'error': True}
         res = {'reason': reason, 'sources': len(srcs), 'new': total_new, 'errors': sum(1 for r in results if r.get('error')),
-               'seconds': round(time.time() - started, 1), 'results': results}
+               'texts': texts, 'seconds': round(time.time() - started, 1), 'results': results}
         _state['last_result'] = {k: v for k, v in res.items() if k != 'results'}
         _state['last_run_at'] = dt.datetime.now(dt.timezone.utc)
         if srcs:
