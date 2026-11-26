@@ -382,7 +382,7 @@ def collect(source_id: int | None = None, reason: str = 'schedule', ws: str = co
                 return s, None, 'внутренняя ошибка: ' + type(e).__name__
 
         results, total_new = [], 0
-        with ThreadPoolExecutor(max_workers=4) as pool:
+        with ThreadPoolExecutor(max_workers=6) as pool:
             for s, got, err in pool.map(one, srcs):
                 if err:
                     db.x('UPDATE studio_sources SET last_run_at = now(), last_error = %s, fails = fails + 1 WHERE id = %s', (err[:300], s['id']))
@@ -430,7 +430,7 @@ def _safe_collect(source_id, reason):
     if _pending and not _state['running']:
         todo = set(_pending)
         _pending.clear()
-        if None in todo:
+        if None in todo or len(todo) > 3:  # много новых разом («Добавить списком») — один общий сбор вместо очереди по одному
             _safe_collect(None, 'queued')
         else:
             for sid in sorted(todo):
