@@ -65,9 +65,22 @@
   const EP_ACT = {
     publish: { label: 'Опубликовать', tone: 'primary', ask: 'Опубликовать выпуск и шортсы на YouTube? Доступ к видео — как указано в настройках направления.', done: 'Отправил на публикацию — начнётся в течение минуты' },
     redo: { label: 'Пересобрать', tone: '', ask: 'Пересобрать выпуск? Запись заново пройдёт монтаж под новым номером (старт в течение 2 минут).', done: 'Пересборка поставлена' },
-    cancel: { label: 'Отменить', tone: 'danger', ask: 'Отменить выпуск? Он не будет опубликован; файлы на сервере удалятся сами через 7 дней.', askScript: 'Отменить сценарий? Запись к нему больше не привяжется.', done: 'Отменено' },
+    cancel: { label: 'Отменить', tone: '', ask: 'Отменить выпуск? Он не будет опубликован; файлы на сервере удалятся сами через 7 дней.', askScript: 'Отменить сценарий? Запись к нему больше не привяжется.', done: 'Отменено' },
   };
   const tc = ms => { const s = Math.max(0, Math.round((ms || 0) / 1000)); return Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0'); };
+  // удалить выпуск или сценарий целиком (база, вставки, файлы на сервере); пока идёт монтаж или публикация — нельзя
+  const EP_BUSY = ['recording', 'rendering', 'publishing', 'publish_requested', 'redo'];
+  const mbText = mb => mb >= 1024 ? (mb / 1024).toFixed(1).replace('.', ',') + ' ГБ' : mb + ' МБ';
+  async function deleteEpisode(id, title, isScript) {
+    if (!confirm(`Удалить ${isScript ? 'сценарий' : 'выпуск'} «${title}»?\n\nУдалятся вставки и файлы на сервере — вернуть будет нельзя. ` +
+      'Расходы останутся в истории, исходник на Google Диске не трогаем.')) return false;
+    try {
+      const r = await api('/api/episodes/' + encodeURIComponent(id), { method: 'DELETE' });
+      toast(r.files_left_mb ? `Удалено. Остаток файлов (${mbText(r.files_left_mb)}) сервер уберёт сам в течение недели`
+        : 'Удалено' + (r.freed_mb ? ' · освобождено ' + mbText(r.freed_mb) : ''));
+      return true;
+    } catch (e) { toast(e.message, true); return false; }
+  }
   const INS_KIND = { screenshot: 'скрин', source_media: 'медиа из источника', card: 'карточка', quote: 'цитата', number: 'цифра', map: 'карта',
     stock: 'сток', wikimedia: 'Wikimedia', diagram: 'схема', ai_image: 'ИИ-картинка' };
   const RUN_TONE = { success: ['ok', 'Успешно'], error: ['err', 'Ошибка'], crashed: ['err', 'Сбой'], running: ['warn live', 'Идёт'],
@@ -274,10 +287,15 @@
         ${e.preview_url ? `<a class="btn small primary" href="${esc(e.preview_url)}" target="_blank" rel="noopener">Смотреть</a>` : ''}
         ${e.youtube_url ? `<a class="btn small" href="${esc(e.youtube_url)}" target="_blank" rel="noopener">YouTube</a>` : ''}
         ${e.kind === 'script' ? `<a class="btn small" href="#/prompter/view?s=${encodeURIComponent(e.id)}">Суфлёр</a>` : ''}
-        <button class="btn small" data-ep="${esc(e.id)}">Подробнее</button></div></div>`).join('');
+        <button class="btn small" data-ep="${esc(e.id)}">Подробнее</button>
+        ${EP_BUSY.includes(e.status) ? '' : `<button class="btn small icon ep-del" data-del="${esc(e.id)}" title="Удалить" aria-label="Удалить">${I.trash}</button>`}</div></div>`).join('');
     view.lastElementChild.outerHTML = list.length ? `<div class="grid eps">${cards}</div>`
       : `<div class="card"><div class="empty"><b>Пусто</b>Здесь появятся сценарии и выпуски</div></div>`;
     bindEps(view);
+    view.querySelectorAll('[data-del]').forEach(b => b.addEventListener('click', async () => {
+      const e = list.find(x => x.id === b.dataset.del);
+      if (e && await deleteEpisode(e.id, e.title, e.kind === 'script')) route();
+    }));
   }
 
   async function openEpisode(id) {
@@ -302,6 +320,7 @@
           : e.preview_url ? `<a class="btn primary" href="${esc(e.preview_url)}" target="_blank" rel="noopener">Смотреть превью</a>` : ''}
         ${e.youtube_url ? `<a class="btn" href="${esc(e.youtube_url)}" target="_blank" rel="noopener">YouTube</a>` : ''}
         ${e.kind === 'script' ? `<a class="btn" href="#/prompter/view?s=${encodeURIComponent(e.id)}">Открыть в суфлёре</a>` : ''}
+        ${EP_BUSY.includes(e.status) ? '' : `<button class="btn danger" data-delep>${I.trash}Удалить</button>`}
       </div>
       ${e.status === 'publish_requested' ? `<div class="note">Публикация начнётся в течение минуты — итог придёт в Telegram и появится здесь.</div>` : ''}
       ${v ? `
@@ -337,6 +356,11 @@
       vid.play().catch(() => {});
       vid.scrollIntoView({ behavior: 'smooth', block: 'center' });
     }));
+    const delBtn = box.querySelector('[data-delep]');
+    if (delBtn) delBtn.addEventListener('click', async () => {
+      if (!await deleteEpisode(e.id, e.title, e.kind === 'script')) return;
+      if (location.hash.startsWith('#/episodes') || location.hash === '#/' || location.hash === '' || location.hash.startsWith('#/prompter')) route(); else closeDrawer();
+    });
     box.querySelectorAll('[data-act]').forEach(b => b.addEventListener('click', async () => {
       const a = EP_ACT[b.dataset.act];
       if (!confirm(e.kind === 'script' && a.askScript ? a.askScript : a.ask)) return;
@@ -381,10 +405,12 @@
       <div class="meta">${meta.map(m => `<span>${esc(m)}</span>`).join('')}</div></div>${right}</li>`;
     const scripts = (d.scripts || []).map(s => row('#/prompter/view?s=' + encodeURIComponent(s.id), s.title,
       [when(s.created_at), s.words.toLocaleString('ru-RU') + ' ' + plural(s.words, 'слово', 'слова', 'слов'), mins(s.words, wpm)],
-      `<div class="pp-row-act">${badge(s.status_label || s.status, EP_TONE[s.status] || '')}<a class="btn small primary" data-read="s:${esc(s.id)}">Читать</a></div>`)).join('');
+      `<div class="pp-row-act">${badge(s.status_label || s.status, EP_TONE[s.status] || '')}<a class="btn small primary" data-read="s:${esc(s.id)}">Читать</a>
+        ${EP_BUSY.includes(s.status) ? '' : `<button class="btn small icon" data-pdel="s:${esc(s.id)}" title="Удалить" aria-label="Удалить">${I.trash}</button>`}</div>`)).join('');
     const texts = (d.texts || []).map(t => row('#/prompter/view?t=' + t.id, t.title,
       [when(t.updated_at), t.words.toLocaleString('ru-RU') + ' ' + plural(t.words, 'слово', 'слова', 'слов'), mins(t.words, wpm)],
-      `<div class="pp-row-act"><a class="btn small primary" data-read="t:${t.id}">Читать</a></div>`)).join('');
+      `<div class="pp-row-act"><a class="btn small primary" data-read="t:${t.id}">Читать</a>
+        <button class="btn small icon" data-pdel="t:${t.id}" title="Удалить" aria-label="Удалить">${I.trash}</button></div>`)).join('');
     view.lastElementChild.outerHTML = `
       <div class="grid two">
         <div class="card"><div class="card-h"><h2>Сценарии конвейера</h2><span class="faint">новые сверху</span></div>
@@ -398,6 +424,19 @@
       location.hash = li.dataset.href;
     }));
     view.querySelectorAll('[data-read]').forEach(b => b.addEventListener('click', ev => { ev.preventDefault(); ev.stopPropagation(); readNow(b.dataset.read); }));
+    view.querySelectorAll('[data-pdel]').forEach(b => b.addEventListener('click', async ev => {
+      ev.preventDefault(); ev.stopPropagation();
+      const [k, id] = [b.dataset.pdel.slice(0, 1), b.dataset.pdel.slice(2)];
+      if (k === 's') {
+        const s = (d.scripts || []).find(x => x.id === id);
+        if (s && await deleteEpisode(s.id, s.title, true)) route();
+        return;
+      }
+      const t = (d.texts || []).find(x => String(x.id) === id);
+      if (!t || !confirm('Удалить текст «' + t.title + '»?')) return;
+      try { await api('/api/prompter/texts/' + t.id, { method: 'DELETE' }); toast('Текст удалён'); route(); }
+      catch (e) { toast(e.message, true); }
+    }));
   }
 
   async function loadDoc(key) {
@@ -450,7 +489,7 @@
     const meta = [isScript ? 'сценарий' : 'свой текст', when(d.updated_at || d.created_at),
       d.words.toLocaleString('ru-RU') + ' ' + plural(d.words, 'слово', 'слова', 'слов'), mins(d.words, wpm) + ' при ' + wpm + ' сл/мин'];
     const actions = `<a class="btn" href="#/prompter">Назад</a>
-      ${isScript ? `<button class="btn" id="pcopy">${I.pencil}Копия для правки</button>`
+      ${isScript ? `<button class="btn" id="pcopy">${I.pencil}Копия для правки</button>${EP_BUSY.includes(d.status) ? '' : `<button class="btn" id="psdel">${I.trash}Удалить</button>`}`
         : `<a class="btn" href="#/prompter/edit?t=${d.id}">${I.pencil}Править</a><button class="btn" id="pdel">${I.trash}Удалить</button>`}
       <button class="btn primary" id="pread">${I.play.replace('fill="#fff"', 'fill="currentColor"')}Читать</button>`;
     const claims = d.claims || [];
@@ -480,6 +519,10 @@
     if (copy) copy.addEventListener('click', () => {
       try { sessionStorage.setItem('prompter.draft', JSON.stringify({ title: d.title + ' (копия)', body: d.plain || '' })); } catch (e) { /* без черновика откроется пустой редактор */ }
       location.hash = '#/prompter/edit?draft=1';
+    });
+    const sdel = $('#psdel');
+    if (sdel) sdel.addEventListener('click', async () => {
+      if (await deleteEpisode(d.id, d.title, true)) location.hash = '#/prompter';
     });
     const del = $('#pdel');
     if (del) del.addEventListener('click', async () => {

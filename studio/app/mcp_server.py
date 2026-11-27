@@ -128,6 +128,13 @@ async def auto_group_sources() -> dict:
 
 
 @mcp.tool()
+async def delete_episode(episode_id: str) -> dict:
+    """Удалить выпуск или сценарий целиком: запись в базе, вставки, файлы на сервере (запись, готовое видео).
+    Расходы остаются в истории, исходник на Google Диске не трогается. Только по прямой просьбе человека."""
+    return await _run(_src_call, services.delete_episode, episode_id, 'claude-mcp')
+
+
+@mcp.tool()
 async def remove_source(source_id: int) -> dict:
     """Удалить источник из списка (собранные материалы останутся). Только по прямой просьбе человека."""
     return await _run(_src_call, sources.remove, source_id, 'claude-mcp')

@@ -412,3 +412,5 @@ body.pp-open { overflow: hidden; }
 .ep-shorts video { display: block; width: 100%; aspect-ratio: 9 / 16; background: #000; border-radius: var(--radius-sm); }
 .ep-shorts figcaption { font-size: 13px; margin-top: 6px; line-height: 1.35; }
 details.ep-raw > summary { cursor: pointer; list-style: revert; }
+.card.ep .foot .ep-del { margin-left: auto; }
+.card.ep .foot .ep-del:hover, .pp-row-act [data-pdel]:hover { color: var(--err); border-color: color-mix(in srgb, var(--err) 35%, var(--line)); }

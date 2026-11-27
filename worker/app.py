@@ -594,6 +594,15 @@ def size_of(p):
 async def trim(req: Request):
     b = await req.json()
     freed = 0
+    ep = str(b.get('episode_id') or '')
+    if b.get('delete_all'):  # кнопка «Удалить» в Студии: папка выпуска целиком (запись, вставки, готовое видео)
+        p = os.path.join(MEDIA, clean(ep))
+        if not ep or clean(ep) != ep or os.path.realpath(p) == os.path.realpath(MEDIA):
+            return JSONResponse({'ok': False, 'error': 'bad episode_id'}, status_code=400)
+        if os.path.isdir(p):
+            freed = size_of(p)
+            await asyncio.to_thread(shutil.rmtree, p, True)
+        return {'ok': True, 'freed_mb': round(freed / 1048576), 'deleted': not os.path.exists(p)}
     if b.get('delete_raw'):
         for f in ('raw.mp4', 'audio.mp3'):
             fp = os.path.join(epdir(b.get('episode_id')), f)

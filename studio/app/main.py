@@ -172,6 +172,13 @@ async def episode_action(eid: str, request: Request, user=Depends(auth.current_u
     return await run_in_threadpool(_src_errors, services.episode_action, eid, str(b.get('action') or ''), user['login'])
 
 
+@app.delete('/api/episodes/{eid}')
+async def episode_delete(eid: str, request: Request, user=Depends(auth.current_user)):
+    """Удалить выпуск или сценарий целиком (база, вставки, файлы на сервере). Расходы остаются в истории."""
+    auth.require_write(request)
+    return await run_in_threadpool(_src_errors, services.delete_episode, eid, user['login'])
+
+
 # ---------- суфлёр ----------
 @app.get('/api/prompter')
 def prompter_list(user=Depends(auth.current_user)):

@@ -1,6 +1,8 @@
 """Данные для разделов Студии и для MCP: обзор, выпуски, источники, отчёт для диагностики."""
 import datetime as dt
 import logging
+import os
+import re
 import shutil
 
 import httpx
@@ -158,6 +160,51 @@ def _video(meta: dict, preview_url: str | None) -> dict | None:
         'missed': [{'marker': str(x.get('marker')), 'why': x.get('why') or ''} for x in (st.get('inserts_missed') or []) if isinstance(x, dict)],
         'credits': meta.get('credits') or [],
     }
+
+
+DELETE_BUSY = ('recording', 'rendering', 'publishing', 'publish_requested', 'redo')
+
+
+def _dir_size(p: str) -> int:
+    total = 0
+    for root, _, files in os.walk(p):
+        for f in files:
+            try:
+                total += os.path.getsize(os.path.join(root, f))
+            except OSError:
+                pass
+    return total
+
+
+def delete_episode(eid: str, actor: str = 'owner') -> dict:
+    """Удалить выпуск или сценарий целиком: запись в базе, вставки и файлы на сервере.
+
+    Остаются: расходы (деньги уже потрачены) и отметка «файл с Диска уже обработан» — иначе монтаж принял бы
+    исходник на Google Диске за новый и собрал бы его заново. Сам исходник на Диске не трогаем.
+    """
+    if not re.fullmatch(r'[A-Za-z0-9_-]{3,80}', eid or ''):
+        raise LookupError('Нет такого выпуска')
+    if not _k_ready():
+        raise LookupError('Выпусков пока нет')
+    r = db.q1("SELECT id, mode, status, coalesce(script->>'yt_title', script->>'title', id) AS title FROM k_episodes WHERE id = %s", (eid,))
+    if not r:
+        raise LookupError('Нет такого выпуска')
+    if r['status'] in DELETE_BUSY:
+        raise ValueError(f"Выпуск сейчас в работе («{STATUS.get(r['status'], r['status'])}») — удалить можно, когда закончится.")
+    folder = os.path.join(config.MEDIA_DIR, eid)  # Студия видит файлы только на чтение — удаляет сервер монтажа
+    before = _dir_size(folder) if os.path.isdir(folder) else 0
+    try:
+        httpx.post(config.WORKER_URL + '/trim', json={'episode_id': eid, 'delete_all': True, 'delete_raw': True},
+                   headers={'X-Worker-Key': config.WORKER_KEY}, timeout=120)
+    except httpx.HTTPError as e:
+        log.warning('удаление файлов %s: %s', eid, e)
+    left = _dir_size(folder) if os.path.isdir(folder) else 0
+    if db.table_exists('k_inserts'):
+        db.x('DELETE FROM k_inserts WHERE episode_id = %s', (eid,))
+    db.x('DELETE FROM k_episodes WHERE id = %s', (eid,))
+    freed_mb = round(max(0, before - left) / 1048576)
+    db.audit(actor, 'episode_delete', {'id': eid, 'title': r['title'], 'status': r['status'], 'freed_mb': freed_mb, 'left_mb': round(left / 1048576)})
+    return {'deleted': eid, 'title': r['title'], 'freed_mb': freed_mb, 'files_left_mb': round(left / 1048576)}
 
 
 def episode_action(eid: str, action: str, actor: str = 'owner') -> dict:
