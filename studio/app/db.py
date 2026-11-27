@@ -61,6 +61,10 @@ CREATE TABLE IF NOT EXISTS studio_directions (
   cut_retakes TEXT NOT NULL DEFAULT 'TRUE',
   created_at TIMESTAMPTZ DEFAULT now(), updated_at TIMESTAMPTZ DEFAULT now(), updated_by TEXT,
   PRIMARY KEY (workspace_id, id));
+CREATE TABLE IF NOT EXISTS studio_accounts (
+  workspace_id TEXT NOT NULL DEFAULT 'main', credential_id TEXT NOT NULL, title TEXT NOT NULL DEFAULT '', url TEXT NOT NULL DEFAULT '',
+  notes TEXT NOT NULL DEFAULT '', created_at TIMESTAMPTZ DEFAULT now(), updated_at TIMESTAMPTZ DEFAULT now(), updated_by TEXT,
+  PRIMARY KEY (workspace_id, credential_id));
 CREATE TABLE IF NOT EXISTS studio_metrics (
   at TIMESTAMPTZ NOT NULL DEFAULT now(), ram_used_pct REAL, ram_avail_gb REAL, swap_used_gb REAL, cpu_pct REAL, steal_pct REAL,
   load1 REAL, disk_free_gb REAL, busy BOOLEAN);

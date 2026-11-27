@@ -63,6 +63,28 @@ def workflows(force: bool = False) -> dict:
     return out
 
 
+def credentials() -> list:
+    """Входы (credentials) n8n: только id, имя и тип — секреты API не отдаёт. Кэш на 2 минуты."""
+    with _lock:
+        c = _cache.get('cred')
+        if c and time.time() - c[0] < 120:
+            return c[1]
+    out, cursor = [], None
+    for _ in range(10):
+        params = {'limit': 100}
+        if cursor:
+            params['cursor'] = cursor
+        page = _get('/credentials', params)
+        out += [{'id': str(x.get('id')), 'name': x.get('name', ''), 'type': x.get('type', ''),
+                 'created_at': x.get('createdAt'), 'updated_at': x.get('updatedAt')} for x in page.get('data', [])]
+        cursor = page.get('nextCursor')
+        if not cursor:
+            break
+    with _lock:
+        _cache['cred'] = (time.time(), out)
+    return out
+
+
 def workflow_name(wid) -> str:
     try:
         return workflows().get(str(wid), {}).get('name') or str(wid)

@@ -12,7 +12,7 @@ from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from starlette.concurrency import run_in_threadpool
 
-from . import apify, auth, catalog, config, content, costs, db, directions, feeds, hostwatch, logs, n8n, prompter, services, sources, vault
+from . import apify, auth, catalog, config, connections, content, costs, db, directions, feeds, hostwatch, logs, n8n, prompter, services, sources, vault
 from .mcp_server import mcp
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s %(name)s %(levelname)s %(message)s')
@@ -310,6 +310,18 @@ def _src_errors(fn, *a, **kw):
         raise HTTPException(404, str(e))
     except ValueError as e:
         raise HTTPException(400, str(e))
+
+
+@app.get('/api/connections')
+def connections_list(user=Depends(auth.current_user)):
+    return connections.overview(user['workspace_id'])
+
+
+@app.put('/api/connections/{cred_id}')
+async def connection_save(cred_id: str, request: Request, user=Depends(auth.current_user)):
+    auth.require_write(request)
+    b = await _body(request)
+    return _src_errors(connections.save, cred_id, b, user['login'], user['workspace_id'])
 
 
 @app.get('/api/directions')

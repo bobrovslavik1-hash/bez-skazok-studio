@@ -33,6 +33,9 @@
   const plural = (n, a, b, c) => { const m10 = n % 10, m100 = n % 100; return m10 === 1 && m100 !== 11 ? a : m10 >= 2 && m10 <= 4 && (m100 < 10 || m100 >= 20) ? b : c; };
 
   const I = {
+    plug: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M9 7V3M15 7V3"/><path d="M6 7h12v4a6 6 0 0 1-12 0V7z"/><path d="M12 17v4"/></svg>',
+    fb: '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M14 8h3V4h-3c-2.8 0-4.5 1.8-4.5 4.6V11H7v4h2.5v8h4v-8h3l.5-4h-3.5V8.8c0-.5.3-.8.5-.8z"/></svg>',
+    threads: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"><path d="M16.5 11.2c-.3-2.6-1.9-3.9-4.3-3.9-2.6 0-4.2 1.9-4.2 4.7s1.6 4.8 4.4 4.8c2 0 3.6-1.1 3.6-3 0-2.4-2.6-3-4.6-2.6"/><path d="M19.5 8.5C18.3 5.2 15.6 3.5 12 3.5c-5 0-8 3.4-8 8.5s3 8.5 8 8.5c3.9 0 6.6-2 7.4-5.2"/></svg>',
     dirs: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3 3 7.5l9 4.5 9-4.5L12 3z"/><path d="m3 12 9 4.5 9-4.5"/><path d="m3 16.5 9 4.5 9-4.5"/></svg>',
     play: '<svg viewBox="0 0 16 16" fill="#fff"><path d="M3 1.8v12.4c0 .6.7 1 1.2.7l10-6.2c.5-.3.5-1.1 0-1.4l-10-6.2C3.7.8 3 1.2 3 1.8z"/></svg>',
     home: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7.5" height="9" rx="1.6"/><rect x="13.5" y="3" width="7.5" height="5.5" rx="1.6"/><rect x="13.5" y="11.5" width="7.5" height="9.5" rx="1.6"/><rect x="3" y="15" width="7.5" height="6" rx="1.6"/></svg>',
@@ -55,7 +58,8 @@
 
   const NAV = [
     ['#/', 'Обзор', I.home], ['#/episodes', 'Выпуски', I.film], ['#/prompter', 'Суфлёр', I.prompter], ['#/logs', 'Журнал', I.log],
-    ['#/costs', 'Расходы', I.coin], ['#/directions', 'Направления', I.dirs], ['#/sources', 'Источники', I.rss], ['#/settings', 'Настройки', I.gear],
+    ['#/costs', 'Расходы', I.coin], ['#/directions', 'Направления', I.dirs], ['#/connections', 'Подключения', I.plug], ['#/sources', 'Источники', I.rss],
+    ['#/settings', 'Настройки', I.gear],
   ];
   const EP_TONE = {
     preview_ready: 'ok', published: 'ok', used: 'ok', partial: 'warn', recording: 'warn live', rendering: 'warn live',
@@ -166,6 +170,8 @@
     const h = '#' + (location.hash.replace(/^#/, '').split('?')[0] || '/');
     document.querySelectorAll('[data-nav]').forEach(a => a.classList.toggle('on', a.dataset.nav === h || (a.dataset.nav !== '#/' && h.startsWith(a.dataset.nav + '/'))));
     document.querySelectorAll('[data-errcount]').forEach(el => { el.textContent = state.errors24; el.classList.toggle('hidden', !state.errors24); });
+    const cur = document.querySelector('.tabbar a.on');  // на телефоне панель листается — держим открытый раздел на виду
+    if (cur && cur.scrollIntoView) cur.scrollIntoView({ inline: 'nearest', block: 'nearest' });
   }
 
   const head = (title, sub, actions = '') => `<div class="head"><div><h1>${title}</h1>${sub ? `<p>${sub}</p>` : ''}</div><div class="actions">${actions}</div></div>`;
@@ -376,6 +382,66 @@
         toast(err.message, true);
         box.querySelectorAll('[data-act]').forEach(x => { x.disabled = false; });
       }
+    }));
+  }
+
+  // ---------- Подключения ----------
+  // Каналы и аккаунты, куда публикует конвейер. Входы (OAuth) живут в n8n — Credentials; Студия секретов не видит,
+  // показывает подключения в одном окне: подпись, ссылка, какие процессы пользуются, кто сюда публикует, последние публикации.
+  const PLAT_ICON = { youtube: () => I.yt, facebook: () => I.fb, threads: () => I.threads };
+  const HOWTO = {
+    youtube: ['В n8n открой Credentials → Add credential → «YouTube OAuth2 API».', 'Нажми «Sign in with Google» и войди той почтой, на которой канал.',
+      'Назови вход «YouTube — канал …» и сохрани — он сам появится здесь.'],
+    facebook: ['Нужна страница Facebook, где ты администратор, и приложение Meta для публикации.',
+      'Подключим вместе следующим шагом: всё подготовлю, тебе останется войти и выдать разрешения.'],
+    threads: ['Нужен аккаунт Threads и то же приложение Meta с доступом к Threads.', 'Подключим вместе после Facebook.'],
+  };
+  async function pageConnections(view) {
+    view.innerHTML = head('Подключения', 'Каналы и аккаунты, куда конвейер публикует: входы хранятся в n8n, а видно и настраивается всё здесь') + loading();
+    let d;
+    try { d = await api('/api/connections'); } catch (e) { view.lastElementChild.outerHTML = failBox(e.message); return; }
+    const P = d.platforms || {};
+    const PRIV = { private: 'ограниченный доступ', unlisted: 'по ссылке', public: 'открытый доступ' };
+    const card = (pid) => {
+      const p = P[pid] || { accounts: [], directions: [], publications: [] };
+      const accs = p.accounts.map(a => `<div class="conn-acc"><div class="conn-acc-t"><span class="dot ok"></span><b>${esc(a.title)}</b>
+          ${a.url ? `<a href="${esc(a.url)}" target="_blank" rel="noopener">открыть</a>` : ''}</div>
+          <div class="faint">вход в n8n: ${esc(a.credential_name)}</div>
+          <div class="faint">${a.used_by.length ? 'пользуется: ' + esc(a.used_by.join(', ')) : 'пока ни один процесс не публикует'}</div>
+          ${a.notes ? `<div class="faint">${esc(a.notes)}</div>` : ''}
+          <button class="btn small" data-edit="${esc(a.credential_id)}">${I.pencil}Изменить</button></div>`).join('');
+      const dirs = p.directions.length ? p.directions.map(x => badge(x.name + ' · ' + (PRIV[x.privacy] || x.privacy), x.enabled ? 'info' : '')).join(' ')
+        : '<span class="muted">ни одно направление сюда не публикует</span>';
+      const pubs = p.publications.length ? `<ul class="rows">${p.publications.map(x => `<li><div class="grow"><div class="title"><a href="${esc(x.url)}" target="_blank" rel="noopener">${esc(x.title)}</a></div>
+          <div class="meta"><span>${when(x.at)}</span>${x.shorts ? `<span>шортсов: ${x.shorts}</span>` : ''}</div></div></li>`).join('')}</ul>`
+        : '<div class="muted">Пока ничего не публиковали</div>';
+      return `<div class="card conn"><div class="card-h"><h2><span class="conn-ic ${pid}">${PLAT_ICON[pid]()}</span>${esc(p.title || pid)}</h2>
+          ${badge(p.accounts.length ? 'подключено' : 'не подключено', p.accounts.length ? 'ok' : '')}</div>
+        <div class="card-b">
+          <div class="faint conn-what">${esc(p.what || '')}</div>
+          ${p.accounts.length ? accs : `<div class="note"><b>Как подключить</b><ol class="conn-steps">${HOWTO[pid].map(s => `<li>${esc(s)}</li>`).join('')}</ol></div>`}
+          ${pid === 'youtube' ? `<div class="section-t">Кто сюда публикует</div><div class="conn-dirs">${dirs}</div>
+            <div class="section-t">Последние публикации</div>${pubs}` : ''}
+        </div></div>`;
+    };
+    view.lastElementChild.outerHTML = (d.error ? failBox('Не получилось спросить n8n: ' + d.error) : '') +
+      `<div class="grid conns">${['youtube', 'facebook', 'threads'].map(card).join('')}</div>
+       <div class="note" style="margin-top:16px">Пароли и ключи сюда не вводятся, и Студия их не видит: вход в аккаунт делается в n8n. Здесь — подпись, ссылка на канал и куда что публикуется. Куда публикует каждое направление — в «Направлениях».</div>`;
+    view.querySelectorAll('[data-edit]').forEach(b => b.addEventListener('click', () => {
+      const a = Object.values(P).flatMap(p => p.accounts).find(x => x.credential_id === b.dataset.edit);
+      if (!a) return;
+      const dlg = drawer('Подключение', esc(a.credential_name), `<div class="conn-form">
+          <label>Подпись<input class="input" id="ctitle" maxlength="120" value="${esc(a.title)}"></label>
+          <label>Ссылка на канал или страницу<input class="input" id="curl" maxlength="300" value="${esc(a.url)}" placeholder="https://www.youtube.com/@…"></label>
+          <label>Заметка<input class="input" id="cnotes" maxlength="500" value="${esc(a.notes)}" placeholder="например: на какой почте канал"></label>
+          <div class="actions"><button class="btn primary" id="csave">Сохранить</button></div></div>`);
+      dlg.querySelector('#csave').addEventListener('click', async () => {
+        try {
+          await api('/api/connections/' + encodeURIComponent(a.credential_id), { method: 'PUT',
+            body: { title: dlg.querySelector('#ctitle').value, url: dlg.querySelector('#curl').value, notes: dlg.querySelector('#cnotes').value } });
+          toast('Сохранено'); route();
+        } catch (e) { toast(e.message, true); }
+      });
     }));
   }
 
@@ -1689,7 +1755,7 @@
   }
 
   // ---------- маршруты ----------
-  const PAGES = { '/': pageOverview, '/episodes': pageEpisodes, '/prompter': pagePrompter, '/prompter/view': pagePrompterView, '/prompter/edit': pagePrompterEdit, '/logs': pageLogs, '/costs': pageCosts, '/sources': pageSources, '/directions': pageDirections, '/directions/edit': pageDirectionEdit, '/settings': pageSettings };
+  const PAGES = { '/': pageOverview, '/episodes': pageEpisodes, '/prompter': pagePrompter, '/prompter/view': pagePrompterView, '/prompter/edit': pagePrompterEdit, '/logs': pageLogs, '/costs': pageCosts, '/sources': pageSources, '/directions': pageDirections, '/directions/edit': pageDirectionEdit, '/connections': pageConnections, '/settings': pageSettings };
 
   function route() {
     if (!state.user) return;

@@ -439,3 +439,26 @@ details.ep-raw > summary { cursor: pointer; list-style: revert; }
   .df { grid-template-columns: minmax(0, 1fr); }
   .df-l { padding-top: 0; }
 }
+
+/* ---------- Подключения ---------- */
+.grid.conns { grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); align-items: start; }
+.conn .card-h h2 { display: flex; align-items: center; gap: 10px; }
+.conn-ic { display: inline-flex; width: 26px; height: 26px; border-radius: 7px; align-items: center; justify-content: center; color: #fff; flex: none; }
+.conn-ic svg { width: 16px; height: 16px; }
+.conn-ic.youtube { background: #ff0033; }
+.conn-ic.facebook { background: #1877f2; }
+.conn-ic.threads { background: #111; }
+.conn-what { margin-bottom: 12px; }
+.conn-steps { margin: 8px 0 0; padding-left: 18px; line-height: 1.5; }
+.conn-dirs { display: flex; flex-wrap: wrap; gap: 6px; }
+.conn-form { display: grid; gap: 14px; }
+.conn-form label { display: grid; gap: 6px; font-weight: 500; }
+.conn-acc { display: grid; gap: 4px; padding: 12px; border: 1px solid var(--line); border-radius: var(--radius-sm); margin-bottom: 8px; }
+.conn-acc-t { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.conn-acc .btn { justify-self: start; margin-top: 6px; }
+/* нижняя панель на телефоне: разделов стало много — листается вбок, подписи не слипаются */
+@media (max-width: 820px) {
+  .tabbar { overflow-x: auto; scrollbar-width: none; justify-content: flex-start; }
+  .tabbar::-webkit-scrollbar { display: none; }
+  .tabbar a { flex: 0 0 auto; min-width: 70px; padding: 4px 6px; white-space: nowrap; }
+}
