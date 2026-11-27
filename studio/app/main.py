@@ -632,6 +632,12 @@ def service_worker():
     return FileResponse(config.WEB_DIR / 'sw.js', media_type='text/javascript', headers={'Cache-Control': 'no-cache'})
 
 
+@app.get('/privacy')
+def privacy():
+    """Открытая страница: политика конфиденциальности и удаление данных — её адрес просит Meta для приложения."""
+    return FileResponse(config.WEB_DIR / 'privacy.html', media_type='text/html')
+
+
 _index_html: dict = {}
 
 

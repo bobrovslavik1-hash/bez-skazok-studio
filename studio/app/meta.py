@@ -196,12 +196,12 @@ def status(ws: str = config.WORKSPACE) -> dict:
     base = config.PUBLIC_URL or ''
     return {
         'facebook': {'app': app('facebook', ws), 'connected': bool(page), 'user': fb.get('user') or '',
-                     'redirect_uri': base and base + '/oauth/facebook/callback',
+                     'redirect_uri': base and base + '/oauth/facebook/callback', 'privacy_url': base and base + '/privacy',
                      'pages': [{'id': p['id'], 'name': p['name'], 'link': p.get('link') or '', 'can_post': _can_post(p)} for p in fb.get('pages') or []],
                      'page': {'id': page['id'], 'name': page['name'], 'link': page.get('link') or f"https://www.facebook.com/{page['id']}"} if page else None,
                      'connected_at': fb.get('connected_at')},
         'threads': {'app': app('threads', ws), 'connected': bool(th.get('enc')), 'username': th.get('username') or '',
-                    'redirect_uri': base and base + '/oauth/threads/callback',
+                    'redirect_uri': base and base + '/oauth/threads/callback', 'privacy_url': base and base + '/privacy',
                     'expires_at': th.get('expires_at'), 'connected_at': th.get('connected_at')},
     }
 

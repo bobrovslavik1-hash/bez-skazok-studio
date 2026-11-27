@@ -412,7 +412,8 @@
     facebook: ['Открой developers.facebook.com → «Мои приложения» → «Создать приложение». Сценарии: «Управлять всем на своей Странице» и (для Threads) «Доступ к Threads API».',
       'В сценарии страницы → «Настроить» → разрешения: добавь pages_manage_posts и pages_read_engagement (pages_show_list уже есть).',
       '«Вход через Facebook для бизнеса» → «Настройки» → «Действительные URI перенаправления OAuth»: вставь адрес ниже и сохрани.',
-      '«Настройки приложения» → «Основное»: скопируй «Идентификатор приложения» и «Секрет приложения» и впиши их сюда кнопкой ниже — не в чат.'],
+      '«Настройки приложения» → «Основное»: скопируй «Идентификатор приложения» и «Секрет приложения» и впиши их сюда кнопкой ниже — не в чат.',
+      'Там же впиши адрес политики конфиденциальности и удаления данных (ниже). После первой проверки переключи приложение в режим «Опубликовано» (Live) — иначе публикации видишь только ты.'],
     threads: ['В том же приложении сценарий «Доступ к Threads API» → «Настроить»: разрешения threads_basic и threads_content_publish.',
       'Там же «Настройки»: «Идентификатор приложения Threads» и «Секрет приложения Threads» — это другие номер и секрет, не как у Facebook. Адрес ниже вставь в «Действительные URI перенаправления OAuth».',
       '«Роли в приложении» → «Роли» → «Добавить людей» → «Тестировщик Threads» → твой аккаунт Threads. Приглашение прими в Threads: Настройки → Аккаунт → Разрешения для сайтов → Приглашения.',
@@ -442,9 +443,12 @@
       const m = M[pid] || {};
       const ap = m.app || {};
       const redirect = m.redirect_uri || (location.origin + '/oauth/' + pid + '/callback');
+      const privacy = m.privacy_url || (location.origin + '/privacy');
+      const urlBox = (t, u) => `<div class="conn-redir"><div class="faint">${t}</div><code>${esc(u)}</code>
+          <button class="btn small" data-copy="${esc(u)}">${I.copy}Скопировать</button></div>`;
       const steps = `<ol class="conn-steps">${META_HOWTO[pid].map(x => `<li>${esc(x)}</li>`).join('')}</ol>
-        <div class="conn-redir"><div class="faint">Адрес возврата (URI перенаправления)</div><code>${esc(redirect)}</code>
-          <button class="btn small" data-copy="${esc(redirect)}">${I.copy}Скопировать</button></div>`;
+        ${urlBox('Адрес возврата (URI перенаправления)', redirect)}
+        ${pid === 'facebook' ? urlBox('Политика конфиденциальности и удаление данных', privacy) : ''}`;
       const appBtn = (t, tone = '') => `<button class="btn ${tone || 'small'}" data-mapp="${pid}">${t}</button>`;
       if (m.connected) {
         const name = pid === 'facebook' ? m.page.name : '@' + m.username;
@@ -453,7 +457,8 @@
           `<option value="${esc(x.id)}"${x.id === m.page.id ? ' selected' : ''}>${esc(x.name)}${x.can_post ? '' : ' (нет права публиковать)'}</option>`).join('')}</select></label>` : '';
         return `<div class="conn-acc"><div class="conn-acc-t"><span class="dot ok"></span><b>${esc(name)}</b>
             <a href="${esc(link)}" target="_blank" rel="noopener">открыть</a></div>
-          ${pid === 'facebook' ? `<div class="faint">вошёл: ${esc(m.user || '—')} · подключено ${when(m.connected_at)}</div>`
+          ${pid === 'facebook' ? `<div class="faint">вошёл: ${esc(m.user || '—')} · подключено ${when(m.connected_at)}</div>
+            <div class="faint">все увидят публикации, когда приложение Meta в режиме «Опубликовано» (Live)</div>`
             : `<div class="faint">подключено ${when(m.connected_at)} · доступ продлевается сам${m.expires_at ? ', сейчас до ' + dt(m.expires_at) : ''}</div>`}
           ${pages}
           <div class="actions"><a class="btn small" href="/oauth/${pid}/start">Переподключить</a>${appBtn('Приложение')}
