@@ -35,7 +35,7 @@ GRAPH = 'https://graph.facebook.com/v26.0'        # и для загрузки �
 THREADS = 'https://graph.threads.net'
 FB_DIALOG = 'https://www.facebook.com/v26.0/dialog/oauth'
 TH_DIALOG = 'https://threads.net/oauth/authorize'
-FB_SCOPES = 'pages_show_list,pages_read_engagement,pages_manage_posts'
+FB_SCOPES = 'pages_show_list,pages_read_engagement,pages_manage_posts,business_management'  # без business_management Facebook прячет страницы бизнес-портфолио
 TH_SCOPES = 'threads_basic,threads_content_publish'
 KINDS = ('facebook', 'threads')
 APP_KEY = {'facebook': 'meta_app', 'threads': 'threads_app'}
@@ -147,6 +147,8 @@ def finish(kind: str, code: str, state: str, base: str, actor: str = 'owner', ws
         pages = [p for p in listed if p.get('access_token')]
         if not pages:  # вход «для бизнеса» отдаёт страницы точечно: ищем их по выданным разрешениям (debug_token)
             pages = _pages_by_grant(a['app_id'], secret, long)
+        if not pages:  # страница принадлежит бизнес-портфолио: /me/accounts её не показывает — берём из портфолио
+            pages = _pages_by_business(long)
         if not pages:
             note = _grant_note(long, len(listed))
             db.audit(actor, 'meta_connect_fail', {'kind': kind, 'note': note}, ws)
@@ -231,6 +233,26 @@ def _pages_by_grant(app_id: str, secret: str, user_token: str) -> list:
     return out
 
 
+def _pages_by_business(user_token: str) -> list:
+    """Страницы из бизнес-портфолио человека (owned_pages, client_pages) — нужно разрешение business_management."""
+    try:
+        biz = _call('GET', GRAPH + '/me/businesses', {'fields': 'id,name', 'limit': 25, 'access_token': user_token}).get('data') or []
+    except MetaError as e:
+        log.warning('me/businesses: %s', e)
+        return []
+    out = []
+    for b in biz[:10]:
+        for edge in ('owned_pages', 'client_pages'):
+            try:
+                rows = _call('GET', GRAPH + f"/{b['id']}/{edge}", {'fields': 'id,name,access_token,link', 'limit': 50,
+                                                                  'access_token': user_token}).get('data') or []
+            except MetaError as e:
+                log.warning('%s/%s: %s', b.get('id'), edge, e)
+                continue
+            out += [p for p in rows if p.get('access_token') and all(str(p['id']) != str(q['id']) for q in out)]
+    return out
+
+
 def _grant_note(user_token: str, listed: int) -> str:
     """Почему страниц нет: какие разрешения человек выдал и сколько страниц вернул Facebook — без ключей."""
     try:
@@ -242,7 +264,9 @@ def _grant_note(user_token: str, listed: int) -> str:
     s = f'Страниц в ответе: {listed}. Выданы: {", ".join(ok) or "—"}'
     if no:
         s += f'; не выданы: {", ".join(no)}'
-    return s + '. Нажми «Подключить» ещё раз и на шаге со страницами отметь свою.'
+    if 'business_management' not in ok:  # страницу из бизнес-портфолио Facebook без этого разрешения не показывает
+        return s + '. Добавь в конфигурацию входа (Meta → «Вход через Facebook для бизнеса» → «Конфигурации») разрешение business_management и нажми «Подключить» ещё раз.'
+    return s + '. Нажми «Подключить» ещё раз и на шагах входа отметь свою страницу и бизнес-портфолио.'
 
 
 def choose_page(page_id: str, actor: str = 'owner', ws: str = config.WORKSPACE) -> dict:
