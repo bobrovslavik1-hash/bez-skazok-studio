@@ -143,10 +143,14 @@ def finish(kind: str, code: str, state: str, base: str, actor: str = 'owner', ws
                                                           'fb_exchange_token': short['access_token']})
         long = lr['access_token']
         me = _call('GET', GRAPH + '/me', {'fields': 'id,name', 'access_token': long})
-        pages = _call('GET', GRAPH + '/me/accounts', {'fields': 'id,name,access_token,link,tasks', 'limit': 50, 'access_token': long}).get('data') or []
-        pages = [p for p in pages if p.get('access_token')]
+        listed = _call('GET', GRAPH + '/me/accounts', {'fields': 'id,name,access_token,link,tasks', 'limit': 50, 'access_token': long}).get('data') or []
+        pages = [p for p in listed if p.get('access_token')]
+        if not pages:  # вход «для бизнеса» отдаёт страницы точечно: ищем их по выданным разрешениям (debug_token)
+            pages = _pages_by_grant(a['app_id'], secret, long)
         if not pages:
-            raise MetaError('Facebook не дал доступ ни к одной странице. Нажми «Подключить» ещё раз и отметь страницу.')
+            note = _grant_note(long, len(listed))
+            db.audit(actor, 'meta_connect_fail', {'kind': kind, 'note': note}, ws)
+            raise MetaError('Facebook не дал доступ ни к одной странице. ' + note)
         # ключ страницы, полученный через долгий ключ человека, не истекает; ключ человека (~60 дней) — только для запасного способа загрузки
         rec = {'user': me.get('name') or '', 'pages': [{'id': str(p['id']), 'name': p.get('name') or '', 'link': p.get('link') or '',
                                                      'tasks': p.get('tasks') or [], 'enc': vault.seal(p['access_token'])} for p in pages],
@@ -202,6 +206,43 @@ def revoke(kind: str, signed: str, deletion: bool, base: str, ws: str = config.W
     if deletion:
         return {'url': (config.PUBLIC_URL or base) + '/privacy#delete', 'confirmation_code': code}
     return {'ok': True}
+
+
+def _pages_by_grant(app_id: str, secret: str, user_token: str) -> list:
+    """Страницы, к которым человек дал доступ при входе (granular_scopes в debug_token), — с ключами страниц."""
+    try:
+        d = _call('GET', GRAPH + '/debug_token', {'input_token': user_token, 'access_token': f'{app_id}|{secret}'}).get('data') or {}
+    except MetaError as e:
+        log.warning('debug_token: %s', e)
+        return []
+    ids = []
+    for g in d.get('granular_scopes') or []:
+        if g.get('scope') in ('pages_show_list', 'pages_manage_posts', 'pages_read_engagement'):
+            ids += [str(t) for t in g.get('target_ids') or [] if str(t) not in ids]
+    out = []
+    for pid in ids[:20]:
+        try:
+            p = _call('GET', GRAPH + f'/{pid}', {'fields': 'id,name,access_token,link', 'access_token': user_token})
+        except MetaError as e:
+            log.warning('страница %s: %s', pid, e)
+            continue
+        if p.get('access_token'):
+            out.append(p)
+    return out
+
+
+def _grant_note(user_token: str, listed: int) -> str:
+    """Почему страниц нет: какие разрешения человек выдал и сколько страниц вернул Facebook — без ключей."""
+    try:
+        perms = _call('GET', GRAPH + '/me/permissions', {'access_token': user_token}).get('data') or []
+    except MetaError:
+        perms = []
+    ok = [p.get('permission') for p in perms if p.get('status') == 'granted']
+    no = [p.get('permission') for p in perms if p.get('status') != 'granted']
+    s = f'Страниц в ответе: {listed}. Выданы: {", ".join(ok) or "—"}'
+    if no:
+        s += f'; не выданы: {", ".join(no)}'
+    return s + '. Нажми «Подключить» ещё раз и на шаге со страницами отметь свою.'
 
 
 def choose_page(page_id: str, actor: str = 'owner', ws: str = config.WORKSPACE) -> dict:
