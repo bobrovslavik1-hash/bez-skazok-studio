@@ -404,6 +404,20 @@ async def meta_callback(kind: str, request: Request, user=Depends(auth.current_u
         return Response(status_code=302, headers={'Location': '/#/connections?err=' + urllib.parse.quote(str(e))})
 
 
+@app.post('/oauth/{kind}/uninstall')
+@app.post('/oauth/{kind}/delete')
+async def meta_revoke(kind: str, request: Request):
+    """Сюда Meta сама шлёт signed_request, когда приложение убрали или просят удалить данные (без входа в Студию)."""
+    if kind not in meta.KINDS:
+        raise HTTPException(404, 'Неизвестная площадка')
+    raw = (await request.body())[:16384].decode('utf-8', 'replace')
+    signed = urllib.parse.parse_qs(raw).get('signed_request', [''])[0]
+    try:
+        return await run_in_threadpool(meta.revoke, kind, signed, request.url.path.endswith('/delete'), _base(request))
+    except meta.MetaError as e:
+        raise HTTPException(400, str(e))
+
+
 @app.post('/internal/meta/publish')
 async def meta_publish(request: Request):
     """Вызывает К6 после YouTube: поставить выпуск в очередь на Facebook и Threads. Ключ — тот же, что у сервера монтажа."""

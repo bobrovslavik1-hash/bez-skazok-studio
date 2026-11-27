@@ -459,7 +459,9 @@
           <button class="btn small" data-copy="${esc(u)}">${I.copy}Скопировать</button></div>`;
       const steps = `<ol class="conn-steps">${META_HOWTO[pid].map(x => `<li>${esc(x)}</li>`).join('')}</ol>
         ${urlBox('Адрес возврата (URI перенаправления)', redirect)}
-        ${pid === 'facebook' ? urlBox('Политика конфиденциальности и удаление данных', privacy) : ''}`;
+        ${pid === 'facebook' ? urlBox('Политика конфиденциальности и удаление данных', privacy)
+          : urlBox('Uninstall Callback URL (если просит)', m.uninstall_url || location.origin + '/oauth/threads/uninstall') +
+            urlBox('Delete Callback URL (если просит)', m.delete_url || location.origin + '/oauth/threads/delete')}`;
       const appBtn = (t, tone = '') => `<button class="btn ${tone || 'small'}" data-mapp="${pid}">${t}</button>`;
       if (m.connected) {
         const name = pid === 'facebook' ? m.page.name : '@' + m.username;

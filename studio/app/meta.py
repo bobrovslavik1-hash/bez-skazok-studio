@@ -12,6 +12,7 @@
 - Threads — короткий текст (до 500 знаков) со ссылкой на выпуск.
 Повторный вызов безопасен: опубликованное отмечается в k_episodes.meta (fb_video_id, threads_post_id) и второй раз не идёт.
 """
+import base64
 import datetime as dt
 import hashlib
 import hmac
@@ -149,7 +150,7 @@ def finish(kind: str, code: str, state: str, base: str, actor: str = 'owner', ws
         # ключ страницы, полученный через долгий ключ человека, не истекает; ключ человека (~60 дней) — только для запасного способа загрузки
         rec = {'user': me.get('name') or '', 'pages': [{'id': str(p['id']), 'name': p.get('name') or '', 'link': p.get('link') or '',
                                                      'tasks': p.get('tasks') or [], 'enc': vault.seal(p['access_token'])} for p in pages],
-               'page_id': str(pages[0]['id']) if len(pages) == 1 else '', 'connected_at': _now().isoformat(), 'by': actor,
+               'page_id': str(pages[0]['id']) if len(pages) == 1 else '', 'connected_at': _now().isoformat(), 'by': actor, 'fb_user_id': str(me.get('id') or ''),
                'user_enc': vault.seal(long), 'user_expires_at': (_now() + dt.timedelta(seconds=int(lr.get('expires_in') or 5184000))).isoformat()}
         db.set_setting(CONN_KEY[kind], rec, ws)
         db.audit(actor, 'meta_connect', {'kind': kind, 'pages': [p['name'] for p in rec['pages']]}, ws)
@@ -164,6 +165,43 @@ def finish(kind: str, code: str, state: str, base: str, actor: str = 'owner', ws
     db.set_setting(CONN_KEY[kind], rec, ws)
     db.audit(actor, 'meta_connect', {'kind': kind, 'username': rec['username']}, ws)
     return f"Threads подключён: @{rec['username']}"
+
+
+def _signed(kind: str, signed: str, ws: str) -> dict:
+    """Разобрать signed_request от Meta: подпись HMAC-SHA256 секретом приложения — подделать без секрета нельзя."""
+    secret = vault.get(SECRET_KEY[kind], ws)
+    if not secret:
+        raise MetaError('Приложение не настроено')
+    try:
+        sig_b64, payload_b64 = str(signed or '').split('.', 1)
+        sig = base64.urlsafe_b64decode(sig_b64 + '=' * (-len(sig_b64) % 4))
+        data = json.loads(base64.urlsafe_b64decode(payload_b64 + '=' * (-len(payload_b64) % 4)))
+    except (ValueError, TypeError):
+        raise MetaError('Неверный запрос')
+    good = hmac.new(secret.encode(), payload_b64.encode(), hashlib.sha256).digest()
+    if not isinstance(data, dict) or not hmac.compare_digest(sig, good) or str(data.get('algorithm') or '').upper() != 'HMAC-SHA256':
+        raise MetaError('Подпись не сошлась')
+    return data
+
+
+def revoke(kind: str, signed: str, deletion: bool, base: str, ws: str = config.WORKSPACE) -> dict:
+    """Meta сообщает: человек убрал приложение (uninstall) или просит удалить данные (delete).
+    Если это наш подключённый аккаунт — забываем ключи доступа и пишем владельцу. Для delete Meta ждёт ссылку и код."""
+    if kind not in KINDS:
+        raise LookupError('Неизвестная площадка')
+    data = _signed(kind, signed, ws)
+    uid = str(data.get('user_id') or '')
+    rec = db.get_setting(CONN_KEY[kind], {}, ws) or {}
+    mine = bool(uid) and uid == str(rec.get('user_id' if kind == 'threads' else 'fb_user_id') or '')
+    if mine:
+        db.x('DELETE FROM studio_settings WHERE workspace_id = %s AND key = %s', (ws, CONN_KEY[kind]))
+        db.notify(f"⚠️ {'Threads' if kind == 'threads' else 'Facebook'}: доступ отозван в Meta — Студия забыла ключи и туда больше не публикует. "
+                  'Если это не ты — проверь аккаунт; подключить снова: Студия → Подключения.', 'meta', ws)
+    code = secrets.token_hex(6)
+    db.audit('meta', 'meta_delete' if deletion else 'meta_uninstall', {'kind': kind, 'ours': mine, 'code': code}, ws)
+    if deletion:
+        return {'url': (config.PUBLIC_URL or base) + '/privacy#delete', 'confirmation_code': code}
+    return {'ok': True}
 
 
 def choose_page(page_id: str, actor: str = 'owner', ws: str = config.WORKSPACE) -> dict:
@@ -197,11 +235,13 @@ def status(ws: str = config.WORKSPACE) -> dict:
     return {
         'facebook': {'app': app('facebook', ws), 'connected': bool(page), 'user': fb.get('user') or '',
                      'redirect_uri': base and base + '/oauth/facebook/callback', 'privacy_url': base and base + '/privacy',
+                     'uninstall_url': base and base + '/oauth/facebook/uninstall', 'delete_url': base and base + '/oauth/facebook/delete',
                      'pages': [{'id': p['id'], 'name': p['name'], 'link': p.get('link') or '', 'can_post': _can_post(p)} for p in fb.get('pages') or []],
                      'page': {'id': page['id'], 'name': page['name'], 'link': page.get('link') or f"https://www.facebook.com/{page['id']}"} if page else None,
                      'connected_at': fb.get('connected_at')},
         'threads': {'app': app('threads', ws), 'connected': bool(th.get('enc')), 'username': th.get('username') or '',
                     'redirect_uri': base and base + '/oauth/threads/callback', 'privacy_url': base and base + '/privacy',
+                    'uninstall_url': base and base + '/oauth/threads/uninstall', 'delete_url': base and base + '/oauth/threads/delete',
                     'expires_at': th.get('expires_at'), 'connected_at': th.get('connected_at')},
     }
 
