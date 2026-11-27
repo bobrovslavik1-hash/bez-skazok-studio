@@ -331,6 +331,8 @@
           : e.preview_url ? `<a class="btn primary" href="${esc(e.preview_url)}" target="_blank" rel="noopener">Смотреть превью</a>` : ''}
         ${e.youtube_url ? `<a class="btn" href="${esc(e.youtube_url)}" target="_blank" rel="noopener">YouTube</a>` : ''}
         ${socLink('facebook', 'Facebook')}${socLink('threads', 'Threads')}
+        ${(e.social_todo || []).length && !socErr.length ? `<button class="btn" data-social>${(e.social_todo.length > 1 ? 'В Facebook и Threads'
+          : e.social_todo[0] === 'facebook' ? 'В Facebook' : 'В Threads')}</button>` : ''}
         ${e.kind === 'script' ? `<a class="btn" href="#/prompter/view?s=${encodeURIComponent(e.id)}">Открыть в суфлёре</a>` : ''}
         ${EP_BUSY.includes(e.status) ? '' : `<button class="btn danger" data-delep>${I.trash}Удалить</button>`}
       </div>

@@ -133,7 +133,22 @@ def episode(eid: str) -> dict | None:
         c['at'] = _iso(c['at'])
     out['actions'] = allowed_actions(r)
     out['video'] = _video(r.get('meta') or {}, r.get('preview_url'))
+    out['social_todo'] = _social_todo(r, out['video'])
     return out
+
+
+def _social_todo(r: dict, video: dict | None) -> list:
+    """Куда этот готовый выпуск ещё можно отправить: Facebook / Threads включены в направлении, но там его пока нет."""
+    m = r.get('meta') or {}
+    if not video or r.get('status') not in ('published', 'partial') or m.get('social_pending'):
+        return []
+    from . import meta as meta_mod  # Facebook и Threads публикует Студия (meta.py)
+    try:
+        t = meta_mod.targets(r['id'])
+    except LookupError:
+        return []
+    done = {'facebook': m.get('fb_video_id'), 'threads': m.get('threads_post_id')}
+    return [k for k in t if not done[k]]
 
 
 def allowed_actions(r: dict) -> list:
