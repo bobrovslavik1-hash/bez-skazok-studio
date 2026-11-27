@@ -401,3 +401,14 @@ body.pp-open { overflow: hidden; }
   .pp-panel { bottom: calc(76px + env(safe-area-inset-bottom)); }
   .pp-row-act .badge { display: none; }
 }
+
+/* ---------- Выпуск: просмотр и действия ---------- */
+.btn.danger { color: var(--err); border-color: color-mix(in srgb, var(--err) 35%, var(--line)); }
+.btn.danger:hover { background: var(--err-soft, color-mix(in srgb, var(--err) 8%, transparent)); }
+.btn:disabled { opacity: .55; cursor: default; }
+.ep-video { display: block; width: 100%; aspect-ratio: 16 / 9; background: #000; border-radius: var(--radius-sm); }
+.ep-shorts { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 12px; }
+.ep-shorts figure { margin: 0; min-width: 0; }
+.ep-shorts video { display: block; width: 100%; aspect-ratio: 9 / 16; background: #000; border-radius: var(--radius-sm); }
+.ep-shorts figcaption { font-size: 13px; margin-top: 6px; line-height: 1.35; }
+details.ep-raw > summary { cursor: pointer; list-style: revert; }

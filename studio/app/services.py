@@ -13,6 +13,14 @@ STATUS = {
     'script_ready': 'Сценарий готов', 'inserts_ready': 'Ждёт запись', 'superseded': 'Заменён новым', 'used': 'Записан',
     'recording': 'Обработка записи', 'rendering': 'Монтаж', 'preview_ready': 'Готов, ждёт решения', 'partial': 'Готов частично',
     'publishing': 'Публикуется', 'published': 'Опубликован', 'redo': 'Пересборка', 'cancelled': 'Отменён', 'error': 'Ошибка',
+    'publish_requested': 'Отправлен на публикацию',
+}
+# Что можно сделать с выпуском из Студии — те же действия, что кнопки бота под превью (К2).
+# Публикацию Студия только заказывает (publish_requested), запускает К6 процесс «Студия · Публикация из Студии» раз в минуту.
+ACTIONS = {
+    'publish': ('preview_ready', 'partial'),
+    'redo': ('preview_ready', 'partial', 'error', 'cancelled'),
+    'cancel': ('preview_ready', 'partial', 'error', 'script_ready', 'inserts_ready'),
 }
 SCRIPT_MODES = ('sources', 'topic')
 
@@ -121,7 +129,65 @@ def episode(eid: str) -> dict | None:
     for c in out['costs']:
         c['usd'] = float(c['usd'])
         c['at'] = _iso(c['at'])
+    out['actions'] = allowed_actions(r)
+    out['video'] = _video(r.get('meta') or {}, r.get('preview_url'))
     return out
+
+
+def allowed_actions(r: dict) -> list:
+    script = r.get('mode') in SCRIPT_MODES
+    return [a for a, st in ACTIONS.items() if r.get('status') in st and (a == 'cancel' or not script)]
+
+
+def _video(meta: dict, preview_url: str | None) -> dict | None:
+    """Готовое видео для просмотра в Студии: сам выпуск, шортсы, обложка, места «проверь глазами»."""
+    final = meta.get('final_url') or preview_url
+    if not final or not str(final).endswith('/final.mp4'):
+        return None
+    base = final[:-len('final.mp4')]
+    st = meta.get('stats') or {}
+    names = [s for s in (meta.get('shorts') or []) if isinstance(s, dict) and s.get('name')]
+    return {
+        'final_url': final, 'thumb_url': base + 'thumb.jpg', 'subs_url': base + 'subs.srt',
+        'shorts': [{'name': s['name'], 'title': s.get('title') or s['name'],
+                    'url': base + ''.join(ch for ch in str(s['name']) if ch.isalnum() or ch in '-_') + '.mp4'} for s in names],
+        'chapters_text': meta.get('chapters_text') or '',
+        'cuts': st.get('cuts'), 'cut_ms': st.get('cut_ms'), 'inserts_placed': st.get('inserts_placed'),
+        'review': [{'marker': str(x.get('marker')), 'at_ms': x.get('at_ms'), 'conf': x.get('conf')}
+                   for x in (st.get('low_conf') or []) if isinstance(x, dict)],
+        'missed': [{'marker': str(x.get('marker')), 'why': x.get('why') or ''} for x in (st.get('inserts_missed') or []) if isinstance(x, dict)],
+        'credits': meta.get('credits') or [],
+    }
+
+
+def episode_action(eid: str, action: str, actor: str = 'owner') -> dict:
+    """Опубликовать / пересобрать / отменить — из Студии. Статус меняется атомарно: если выпуск уже ушёл дальше, ничего не трогаем."""
+    if action not in ACTIONS:
+        raise ValueError('Неизвестное действие')
+    if not _k_ready():
+        raise LookupError('Выпусков пока нет')
+    r = db.q1("SELECT id, mode, status, coalesce(script->>'yt_title', script->>'title', id) AS title FROM k_episodes WHERE id = %s", (eid,))
+    if not r:
+        raise LookupError('Нет такого выпуска')
+    if action not in allowed_actions(r):
+        raise ValueError(f"Сейчас этого сделать нельзя: выпуск в статусе «{STATUS.get(r['status'], r['status'])}». Обнови страницу.")
+    allowed = list(ACTIONS[action])
+    new = {'publish': 'publish_requested', 'redo': 'redo', 'cancel': 'cancelled'}[action]
+    done = db.q1('UPDATE k_episodes SET status = %s, updated_at = now() WHERE id = %s AND status = ANY(%s) RETURNING id', (new, eid, allowed))
+    if not done:
+        raise ValueError('Статус выпуска только что изменился — обнови страницу.')
+    title = r['title']
+    if action == 'redo' and db.table_exists('k_files'):
+        db.x('DELETE FROM k_files WHERE episode_id = %s', (eid,))  # монтаж увидит запись как новую и соберёт заново (как кнопка в боте)
+    text = {
+        'publish': f'🎛 Из Студии: «{title}» — отправил на публикацию, начнётся в течение минуты.',
+        'redo': f'🔁 Из Студии: пересоберу «{title}» — запись заново пройдёт монтаж в течение 2 минут (под новым номером).',
+        'cancel': (f'🗑 Из Студии: сценарий «{title}» отменён — запись к нему не привяжется.' if r['mode'] in SCRIPT_MODES
+                   else f'🗑 Из Студии: выпуск «{title}» отменён. Файлы на сервере удалятся сами через 7 дней.'),
+    }[action]
+    db.audit(actor, 'episode_' + action, {'id': eid, 'from': r['status'], 'to': new})
+    db.notify(text, 'episode')
+    return episode(eid)
 
 
 def sources() -> dict:

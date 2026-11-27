@@ -59,7 +59,15 @@
   const EP_TONE = {
     preview_ready: 'ok', published: 'ok', used: 'ok', partial: 'warn', recording: 'warn live', rendering: 'warn live',
     publishing: 'warn live', redo: 'warn live', script_ready: 'info', inserts_ready: 'info', error: 'err', superseded: '', cancelled: '',
+    publish_requested: 'warn live',
   };
+  // действия с выпуском из Студии — те же, что кнопки бота под превью
+  const EP_ACT = {
+    publish: { label: 'Опубликовать', tone: 'primary', ask: 'Опубликовать выпуск и шортсы на YouTube? Доступ к видео — как указано в настройках направления.', done: 'Отправил на публикацию — начнётся в течение минуты' },
+    redo: { label: 'Пересобрать', tone: '', ask: 'Пересобрать выпуск? Запись заново пройдёт монтаж под новым номером (старт в течение 2 минут).', done: 'Пересборка поставлена' },
+    cancel: { label: 'Отменить', tone: 'danger', ask: 'Отменить выпуск? Он не будет опубликован; файлы на сервере удалятся сами через 7 дней.', askScript: 'Отменить сценарий? Запись к нему больше не привяжется.', done: 'Отменено' },
+  };
+  const tc = ms => { const s = Math.max(0, Math.round((ms || 0) / 1000)); return Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0'); };
   const INS_KIND = { screenshot: 'скрин', source_media: 'медиа из источника', card: 'карточка', quote: 'цитата', number: 'цифра', map: 'карта',
     stock: 'сток', wikimedia: 'Wikimedia', diagram: 'схема', ai_image: 'ИИ-картинка' };
   const RUN_TONE = { success: ['ok', 'Успешно'], error: ['err', 'Ошибка'], crashed: ['err', 'Сбой'], running: ['warn live', 'Идёт'],
@@ -278,13 +286,33 @@
     try { e = await api('/api/episodes/' + encodeURIComponent(id)); } catch (err) { d0.querySelector('.d-b').innerHTML = failBox(err.message); return; }
     const sc = e.script;
     const fails = (e.inserts || []).filter(i => i.status !== 'ok');
+    const v = e.video;
+    const acts = (e.actions || []).filter(a => EP_ACT[a]);
+    const review = v ? [
+      ...(v.review || []).map(x => `<li><button class="btn small" data-seek="${x.at_ms || 0}">${tc(x.at_ms)}</button><div class="grow">
+        <div class="title">Вставка ${esc(x.marker)} — проверь место</div><div class="meta">уверенность ${Math.round((x.conf || 0) * 100)}%</div></div></li>`),
+      ...(v.missed || []).map(x => `<li><span class="dot err"></span><div class="grow"><div class="title">Вставка ${esc(x.marker)} не встала</div>
+        <div class="meta">${esc(x.why)}</div></div></li>`)] : [];
     const body = `
       <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:14px">${epTags(e)}</div>
-      <div class="actions" style="margin-bottom:6px">
-        ${e.preview_url ? `<a class="btn primary" href="${esc(e.preview_url)}" target="_blank" rel="noopener">Смотреть превью</a>` : ''}
+      ${v ? `<video class="ep-video" controls preload="metadata" playsinline poster="${esc(v.thumb_url)}" src="${esc(v.final_url)}"></video>` : ''}
+      <div class="actions" style="margin:12px 0 6px">
+        ${acts.map(a => `<button class="btn ${EP_ACT[a].tone}" data-act="${a}">${EP_ACT[a].label}</button>`).join('')}
+        ${v ? `<a class="btn" href="${esc(v.final_url)}" target="_blank" rel="noopener">Открыть видео</a>`
+          : e.preview_url ? `<a class="btn primary" href="${esc(e.preview_url)}" target="_blank" rel="noopener">Смотреть превью</a>` : ''}
         ${e.youtube_url ? `<a class="btn" href="${esc(e.youtube_url)}" target="_blank" rel="noopener">YouTube</a>` : ''}
         ${e.kind === 'script' ? `<a class="btn" href="#/prompter/view?s=${encodeURIComponent(e.id)}">Открыть в суфлёре</a>` : ''}
       </div>
+      ${e.status === 'publish_requested' ? `<div class="note">Публикация начнётся в течение минуты — итог придёт в Telegram и появится здесь.</div>` : ''}
+      ${v ? `
+        ${review.length ? `<div class="section-t">Проверь перед публикацией</div><div class="card"><ul class="rows">${review.join('')}</ul></div>` : ''}
+        ${(v.shorts || []).length ? `<div class="section-t">Шортсы · ${v.shorts.length}</div><div class="ep-shorts">${v.shorts.map(s => `<figure>
+          <video controls preload="none" playsinline src="${esc(s.url)}"></video><figcaption>${esc(s.title)}</figcaption></figure>`).join('')}</div>` : ''}
+        <div class="section-t">Монтаж</div><dl class="kv">
+          <dt>Вставки</dt><dd>${v.inserts_placed ?? '—'}${(v.missed || []).length ? ` · не встали: ${v.missed.length}` : ''}</dd>
+          <dt>Вырезано пауз и дублей</dt><dd>${v.cuts ?? 0}${v.cut_ms ? ` · ${tc(v.cut_ms)}` : ''}</dd>
+          <dt>Субтитры</dt><dd><a href="${esc(v.subs_url)}" target="_blank" rel="noopener">subs.srt</a></dd></dl>
+        ${v.chapters_text ? `<div class="section-t">Главы для описания</div><pre class="json">${esc(v.chapters_text)}</pre>` : ''}` : ''}
       <div class="section-t">Главное</div>
       <dl class="kv"><dt>Создан</dt><dd>${dt(e.created_at)}</dd><dt>Обновлён</dt><dd>${dt(e.updated_at)}</dd>
         ${e.script_id ? `<dt>Сценарий</dt><dd class="mono">${esc(e.script_id)}</dd>` : ''}
@@ -299,8 +327,31 @@
       ${(e.costs || []).length ? `<div class="section-t">Вызовы Claude</div><div class="card scroll-x"><table class="table"><tr><th>Шаг</th><th>Модель</th><th class="r">Токены</th><th class="r">$</th></tr>
         ${e.costs.map(c => `<tr><td>${esc(c.node)}<div class="faint">${esc(c.workflow_name || '')}</div></td><td class="mono">${esc(c.model)}</td>
           <td class="r num">${(c.input_tokens || 0).toLocaleString('ru-RU')} / ${(c.output_tokens || 0).toLocaleString('ru-RU')}</td><td class="r num">${money(c.usd, 3)}</td></tr>`).join('')}</table></div>` : ''}
-      <div class="section-t">Данные монтажа</div><pre class="json">${esc(JSON.stringify(e.meta || {}, null, 2))}</pre>`;
-    d0.querySelector('.d-b').innerHTML = body;
+      <details class="ep-raw"><summary class="section-t">Данные монтажа (для разбора)</summary><pre class="json">${esc(JSON.stringify(e.meta || {}, null, 2))}</pre></details>`;
+    const box = d0.querySelector('.d-b');
+    box.innerHTML = body;
+    const vid = box.querySelector('.ep-video');
+    box.querySelectorAll('[data-seek]').forEach(b => b.addEventListener('click', () => {
+      if (!vid) return;
+      vid.currentTime = Math.max(0, Number(b.dataset.seek) / 1000 - 2);
+      vid.play().catch(() => {});
+      vid.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }));
+    box.querySelectorAll('[data-act]').forEach(b => b.addEventListener('click', async () => {
+      const a = EP_ACT[b.dataset.act];
+      if (!confirm(e.kind === 'script' && a.askScript ? a.askScript : a.ask)) return;
+      box.querySelectorAll('[data-act]').forEach(x => { x.disabled = true; });
+      try {
+        await api('/api/episodes/' + encodeURIComponent(id) + '/action', { body: { action: b.dataset.act } });
+        toast(a.done);
+        // перерисовать список (route сам закрывает выдвижную панель), затем открыть выпуск с новым статусом
+        if (location.hash.startsWith('#/episodes') || location.hash === '#/' || location.hash === '') route(); else closeDrawer();
+        openEpisode(id);
+      } catch (err) {
+        toast(err.message, true);
+        box.querySelectorAll('[data-act]').forEach(x => { x.disabled = false; });
+      }
+    }));
   }
 
   // ---------- Суфлёр ----------

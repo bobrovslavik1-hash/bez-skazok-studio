@@ -164,6 +164,14 @@ def episode(eid: str, user=Depends(auth.current_user)):
     return ep
 
 
+@app.post('/api/episodes/{eid}/action')
+async def episode_action(eid: str, request: Request, user=Depends(auth.current_user)):
+    """Опубликовать / пересобрать / отменить — те же действия, что кнопки бота под превью."""
+    auth.require_write(request)
+    b = await _body(request)
+    return await run_in_threadpool(_src_errors, services.episode_action, eid, str(b.get('action') or ''), user['login'])
+
+
 # ---------- суфлёр ----------
 @app.get('/api/prompter')
 def prompter_list(user=Depends(auth.current_user)):
