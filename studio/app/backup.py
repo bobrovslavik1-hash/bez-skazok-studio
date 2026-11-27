@@ -30,6 +30,7 @@ TABLES = [
     ('studio_costs', 'TRUE', 'at, execution_id, node, run_index'),
     ('studio_audit', 'TRUE', 'id'),
     ('studio_texts', 'TRUE', 'id'),  # свои тексты для суфлёра
+    ('studio_directions', 'TRUE', 'workspace_id, sort, id'),  # настройки направлений (раньше — Google-таблица)
     ('k_episodes', 'TRUE', 'created_at, id'),
     ('k_inserts', 'TRUE', 'episode_id, marker'),
     ('k_files', 'TRUE', 'seen_at, drive_file_id'),

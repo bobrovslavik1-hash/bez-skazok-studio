@@ -12,7 +12,7 @@ from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from starlette.concurrency import run_in_threadpool
 
-from . import apify, auth, catalog, config, content, costs, db, feeds, hostwatch, logs, n8n, prompter, services, sources, vault
+from . import apify, auth, catalog, config, content, costs, db, directions, feeds, hostwatch, logs, n8n, prompter, services, sources, vault
 from .mcp_server import mcp
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s %(name)s %(levelname)s %(message)s')
@@ -310,6 +310,31 @@ def _src_errors(fn, *a, **kw):
         raise HTTPException(404, str(e))
     except ValueError as e:
         raise HTTPException(400, str(e))
+
+
+@app.get('/api/directions')
+def directions_list(user=Depends(auth.current_user)):
+    return {'directions': directions.list_(user['workspace_id']), **directions.meta()}
+
+
+@app.get('/api/directions/{did}')
+def direction_get(did: str, user=Depends(auth.current_user)):
+    return {'direction': _src_errors(directions.get, did, user['workspace_id']), **directions.meta()}
+
+
+@app.put('/api/directions/{did}')
+async def direction_save(did: str, request: Request, user=Depends(auth.current_user)):
+    auth.require_write(request)
+    b = await _body(request)
+    return _src_errors(directions.save, did, b, user['login'], user['workspace_id'])
+
+
+@app.post('/api/directions')
+async def direction_create(request: Request, user=Depends(auth.current_user)):
+    auth.require_write(request)
+    b = await _body(request)
+    data = {k: v for k, v in b.items() if k not in ('id', 'copy_from')}
+    return _src_errors(directions.create, str(b.get('id') or ''), data, b.get('copy_from') or None, user['login'], user['workspace_id'])
 
 
 @app.get('/api/sources')

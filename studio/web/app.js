@@ -33,6 +33,7 @@
   const plural = (n, a, b, c) => { const m10 = n % 10, m100 = n % 100; return m10 === 1 && m100 !== 11 ? a : m10 >= 2 && m10 <= 4 && (m100 < 10 || m100 >= 20) ? b : c; };
 
   const I = {
+    dirs: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3 3 7.5l9 4.5 9-4.5L12 3z"/><path d="m3 12 9 4.5 9-4.5"/><path d="m3 16.5 9 4.5 9-4.5"/></svg>',
     play: '<svg viewBox="0 0 16 16" fill="#fff"><path d="M3 1.8v12.4c0 .6.7 1 1.2.7l10-6.2c.5-.3.5-1.1 0-1.4l-10-6.2C3.7.8 3 1.2 3 1.8z"/></svg>',
     home: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7.5" height="9" rx="1.6"/><rect x="13.5" y="3" width="7.5" height="5.5" rx="1.6"/><rect x="13.5" y="11.5" width="7.5" height="9.5" rx="1.6"/><rect x="3" y="15" width="7.5" height="6" rx="1.6"/></svg>',
     prompter: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3.5" width="18" height="17" rx="2.5"/><path d="M7 8.5h10M7 12h10M7 15.5h6"/><path d="M3 12h1.6" stroke-width="2.4"/></svg>',
@@ -54,7 +55,7 @@
 
   const NAV = [
     ['#/', 'Обзор', I.home], ['#/episodes', 'Выпуски', I.film], ['#/prompter', 'Суфлёр', I.prompter], ['#/logs', 'Журнал', I.log],
-    ['#/costs', 'Расходы', I.coin], ['#/sources', 'Источники', I.rss], ['#/settings', 'Настройки', I.gear],
+    ['#/costs', 'Расходы', I.coin], ['#/directions', 'Направления', I.dirs], ['#/sources', 'Источники', I.rss], ['#/settings', 'Настройки', I.gear],
   ];
   const EP_TONE = {
     preview_ready: 'ok', published: 'ok', used: 'ok', partial: 'warn', recording: 'warn live', rendering: 'warn live',
@@ -376,6 +377,127 @@
         box.querySelectorAll('[data-act]').forEach(x => { x.disabled = false; });
       }
     }));
+  }
+
+  // ---------- Направления ----------
+  // Рубрики и каналы: настройки, по которым конвейер пишет сценарий, собирает вставки, монтирует и публикует.
+  // Раньше лежали в Google-таблице; процессы n8n читают их отсюда (studio/app/directions.py).
+  const STOCK_T = { coverr: 'Coverr — видео', wikimedia: 'Wikimedia', openverse: 'Openverse — фото', nasa: 'NASA' };
+  async function pageDirections(view) {
+    view.innerHTML = head('Направления', 'Рубрики и каналы: длительность, стиль, вставки, монтаж, папка на Диске и публикация',
+      `<a class="btn primary" href="#/directions/edit?new=1">${I.plus}Новое направление</a>`) + loading();
+    let d;
+    try { d = await api('/api/directions'); } catch (e) { view.lastElementChild.outerHTML = failBox(e.message); return; }
+    const list = d.directions || [];
+    const cards = list.map(x => `<div class="card ep dir${x.enabled ? '' : ' off'}">
+      <div class="tags">${badge(x.enabled ? 'включено' : 'выключено', x.enabled ? 'ok' : '')}${badge(d.modes[x.mode] || x.mode, 'plain')}${badge(x.id, 'plain')}</div>
+      <h3>${esc(x.name)}</h3>
+      <div class="meta"><span>${x.minutes} мин</span><span>${x.words_per_min} сл/мин</span><span>шортсов: ${x.shorts}</span>
+        ${x.episodes_30d ? `<span>выпусков за 30 дней: ${x.episodes_30d}</span>` : ''}</div>
+      <dl class="kv dir-kv">
+        <dt>Вставки</dt><dd>${esc(x.inserts.map(k => (d.kinds[k] || k).toLowerCase()).join(', ')) || '—'}</dd>
+        <dt>Монтаж</dt><dd>${x.cut_pauses ? 'паузы длиннее ' + x.pause_cut_ms + ' мс — вырезать' : 'паузы не трогать'}${x.cut_retakes ? ', дубли — убирать' : ''}</dd>
+        <dt>YouTube</dt><dd>${x.publish_youtube ? esc((d.privacy[x.youtube_privacy] || x.youtube_privacy).toLowerCase()) : 'не публиковать'}</dd>
+        <dt>Папка на Диске</dt><dd>${x.folder_url ? `<a href="${esc(x.folder_url)}" target="_blank" rel="noopener">открыть</a>` : 'не задана'}</dd>
+      </dl>
+      <div class="foot"><a class="btn small" href="#/directions/edit?id=${encodeURIComponent(x.id)}">${I.pencil}Изменить</a></div></div>`).join('');
+    view.lastElementChild.outerHTML = (list.length ? `<div class="grid eps">${cards}</div>`
+      : `<div class="card"><div class="empty"><b>Направлений пока нет</b>Нажми «Новое направление»</div></div>`) +
+      `<div class="note" style="margin-top:16px">Раньше эти настройки жили в Google-таблице. Теперь конвейер берёт их отсюда: изменил и сохранил — следующий выпуск пойдёт уже по-новому.</div>`;
+  }
+
+  async function pageDirectionEdit(view, params) {
+    const isNew = params.get('new') === '1';
+    view.innerHTML = head(isNew ? 'Новое направление' : 'Направление', '', `<a class="btn" href="#/directions">Назад</a>`) + loading();
+    let d;
+    try { d = await api('/api/directions'); } catch (e) { view.lastElementChild.outerHTML = failBox(e.message); return; }
+    const all = d.directions || [];
+    let x = isNew ? null : all.find(r => r.id === params.get('id'));
+    if (!isNew && !x) { view.lastElementChild.outerHTML = failBox('Нет такого направления'); return; }
+    const blank = { id: '', name: '', enabled: true, mode: 'free', language: 'ru', minutes: 15, words_per_min: 130, shorts: 3, sources_on: false,
+      style_prompt: '', inserts: ['card', 'quote', 'number', 'map', 'stock', 'wikimedia'], stock_sources: [], cut_pauses: true, pause_cut_ms: 700,
+      pause_keep_ms: 150, cut_retakes: true, publish_youtube: false, youtube_privacy: 'private', brand_color: '#111111', accent_color: '#E53935',
+      logo_url: '', drive_folder_id: '', folder_url: '' };
+    const sw = (k, on) => `<label class="switch"><input type="checkbox" data-k="${k}" ${on ? 'checked' : ''}><i></i></label>`;
+    const row = (label, inner, hint) => `<div class="df"><div class="df-l">${label}${hint ? `<div class="faint">${hint}</div>` : ''}</div><div class="df-i">${inner}</div></div>`;
+    const sel = (k, opts, v) => `<select class="input" data-k="${k}">${Object.entries(opts).map(([o, t]) => `<option value="${o}"${o === v ? ' selected' : ''}>${esc(t)}</option>`).join('')}</select>`;
+    const num = (k, v, min, max, step = 1) => `<input class="input df-num" type="number" data-k="${k}" value="${v}" min="${min}" max="${max}" step="${step}">`;
+    const txt = (k, v, ph = '') => `<input class="input" data-k="${k}" value="${esc(v || '')}" placeholder="${esc(ph)}">`;
+    const checks = (k, opts, vals) => `<div class="df-checks">${Object.entries(opts).map(([o, t]) =>
+      `<label class="chk"><input type="checkbox" data-list="${k}" value="${o}"${vals.includes(o) ? ' checked' : ''}><span>${esc(t)}</span></label>`).join('')}</div>`;
+    const form = (v) => `
+      <div class="card"><div class="card-h"><h2>Основное</h2></div><div class="card-b">
+        ${isNew ? row('Код', `<input class="input" id="dnid" placeholder="например blog" maxlength="31">`, 'латиницей, без пробелов — по нему конвейер узнаёт направление') +
+          row('Взять настройки из', `<select class="input" id="dcopy"><option value="">— с нуля —</option>${all.map(r => `<option value="${esc(r.id)}"${r.id === v._copy ? ' selected' : ''}>${esc(r.name)}</option>`).join('')}</select>`) : ''}
+        ${row('Название', txt('name', v.name, 'как назвать рубрику или канал'))}
+        ${row('Включено', sw('enabled', v.enabled), 'выключенное направление конвейер не трогает: папку не смотрит, выпуски не делает')}
+        ${row('Режим', sel('mode', d.modes, v.mode), 'новости — из источников; тема — по запросу боту; своё видео — кидаешь запись без сценария, вставки подберутся по речи')}
+        ${row('Язык', sel('language', d.langs, v.language))}
+      </div></div>
+      <div class="card"><div class="card-h"><h2>Сценарий</h2></div><div class="card-b">
+        ${row('Длительность, мин', num('minutes', v.minutes, 1, 90))}
+        ${row('Темп чтения, слов в минуту', num('words_per_min', v.words_per_min, 60, 250, 5), 'по нему считается длина текста и скорость суфлёра')}
+        ${row('Шортсов', num('shorts', v.shorts, 0, 5))}
+        ${row('Собирать новости из источников', sw('sources_on', v.sources_on), 'для режима «Новости из источников»')}
+        ${row('Стиль', `<textarea class="input df-area" data-k="style_prompt" rows="5" placeholder="Как писать: тон, структура, чего избегать">${esc(v.style_prompt || '')}</textarea>`, 'это читает сценарист (Claude) перед каждым текстом')}
+      </div></div>
+      <div class="card"><div class="card-h"><h2>Вставки</h2></div><div class="card-b">
+        ${row('Какие можно', checks('inserts', d.kinds, v.inserts), 'скриншоты и медиа из источника бывают только в новостях')}
+        ${row('Откуда брать сток', checks('stock_sources', STOCK_T, v.stock_sources), 'ничего не выбрано — набор по умолчанию')}
+      </div></div>
+      <div class="card"><div class="card-h"><h2>Монтаж</h2></div><div class="card-b">
+        ${row('Вырезать паузы', sw('cut_pauses', v.cut_pauses))}
+        ${row('Паузы длиннее, мс', num('pause_cut_ms', v.pause_cut_ms, 200, 3000, 50), '700 — обычный темп; меньше — динамичнее')}
+        ${row('Оставлять от паузы, мс', num('pause_keep_ms', v.pause_keep_ms, 0, 1000, 50), 'чтобы речь не слипалась')}
+        ${row('Убирать дубли', sw('cut_retakes', v.cut_retakes), 'если фразу прочитал два раза — останется последняя')}
+      </div></div>
+      <div class="card"><div class="card-h"><h2>Публикация</h2></div><div class="card-b">
+        ${row('YouTube', sw('publish_youtube', v.publish_youtube))}
+        ${row('Доступ к видео', sel('youtube_privacy', d.privacy, v.youtube_privacy))}
+        <div class="note">Выбор канала, Facebook и Threads появятся в разделе «Подключения» — это следующий шаг.</div>
+      </div></div>
+      <div class="card"><div class="card-h"><h2>Оформление и папка</h2></div><div class="card-b">
+        ${row('Цвет фона карточек', `<input class="input df-color" type="color" data-k="brand_color" value="${esc(v.brand_color)}">`)}
+        ${row('Акцентный цвет', `<input class="input df-color" type="color" data-k="accent_color" value="${esc(v.accent_color)}">`)}
+        ${row('Логотип', txt('logo_url', v.logo_url, 'ссылка на картинку, можно пусто'))}
+        ${row('Папка на Google Диске', txt('drive_folder_id', v.folder_url || v.drive_folder_id, 'ссылка на папку, куда кидаешь записи') +
+          (v.folder_url ? ` <a class="btn small" href="${esc(v.folder_url)}" target="_blank" rel="noopener">${I.ext}Открыть</a>` : ''),
+          'монтаж проверяет её каждые 2 минуты')}
+      </div></div>`;
+    const draw = (v) => {
+      view.lastElementChild.outerHTML = `<div class="dir-form">${form(v)}
+        <div class="actions"><button class="btn primary" id="dsave">Сохранить</button><a class="btn" href="#/directions">Отмена</a></div></div>`;
+      const copySel = $('#dcopy');
+      if (copySel) copySel.addEventListener('change', () => {
+        const src = all.find(r => r.id === copySel.value);
+        const nid = $('#dnid').value;
+        draw(Object.assign({}, src || blank, { id: '', drive_folder_id: '', folder_url: '', name: $('[data-k="name"]').value, _copy: copySel.value }));
+        $('#dnid').value = nid;
+      });
+      $('#dsave').addEventListener('click', save);
+    };
+    const collect = () => {
+      const out = {};
+      view.querySelectorAll('[data-k]').forEach(el => { out[el.dataset.k] = el.type === 'checkbox' ? el.checked : el.value; });
+      ['inserts', 'stock_sources'].forEach(k => { out[k] = [...view.querySelectorAll(`[data-list="${k}"]:checked`)].map(c => c.value); });
+      return out;
+    };
+    async function save() {
+      const btn = $('#dsave'); btn.disabled = true;
+      try {
+        const body = collect();
+        if (isNew) {
+          body.id = ($('#dnid').value || '').trim().toLowerCase();
+          body.copy_from = ($('#dcopy') || {}).value || null;
+          await api('/api/directions', { body });
+        } else {
+          await api('/api/directions/' + encodeURIComponent(x.id), { method: 'PUT', body });
+        }
+        toast(isNew ? 'Направление добавлено' : 'Сохранено — следующий выпуск пойдёт по новым настройкам');
+        location.hash = '#/directions';
+      } catch (e) { toast(e.message, true); btn.disabled = false; }
+    }
+    draw(x || blank);
   }
 
   // ---------- Суфлёр ----------
@@ -1567,7 +1689,7 @@
   }
 
   // ---------- маршруты ----------
-  const PAGES = { '/': pageOverview, '/episodes': pageEpisodes, '/prompter': pagePrompter, '/prompter/view': pagePrompterView, '/prompter/edit': pagePrompterEdit, '/logs': pageLogs, '/costs': pageCosts, '/sources': pageSources, '/settings': pageSettings };
+  const PAGES = { '/': pageOverview, '/episodes': pageEpisodes, '/prompter': pagePrompter, '/prompter/view': pagePrompterView, '/prompter/edit': pagePrompterEdit, '/logs': pageLogs, '/costs': pageCosts, '/sources': pageSources, '/directions': pageDirections, '/directions/edit': pageDirectionEdit, '/settings': pageSettings };
 
   function route() {
     if (!state.user) return;

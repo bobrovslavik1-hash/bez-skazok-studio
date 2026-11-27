@@ -48,6 +48,19 @@ ALTER TABLE studio_sources ADD COLUMN IF NOT EXISTS role TEXT;
 CREATE TABLE IF NOT EXISTS studio_texts (
   id BIGSERIAL PRIMARY KEY, workspace_id TEXT NOT NULL DEFAULT 'main', title TEXT NOT NULL, body TEXT NOT NULL,
   created_by TEXT, created_at TIMESTAMPTZ DEFAULT now(), updated_at TIMESTAMPTZ DEFAULT now());
+CREATE TABLE IF NOT EXISTS studio_directions (
+  workspace_id TEXT NOT NULL DEFAULT 'main', id TEXT NOT NULL, sort INT NOT NULL DEFAULT 0,
+  enabled TEXT NOT NULL DEFAULT 'TRUE', name TEXT NOT NULL DEFAULT '', mode TEXT NOT NULL DEFAULT 'topic',
+  sources_on TEXT NOT NULL DEFAULT 'FALSE', inserts TEXT NOT NULL DEFAULT 'card,quote,number', ai_images TEXT NOT NULL DEFAULT 'FALSE',
+  language TEXT NOT NULL DEFAULT 'ru', minutes INT NOT NULL DEFAULT 15, words_per_min INT NOT NULL DEFAULT 130, shorts INT NOT NULL DEFAULT 3,
+  drive_folder_id TEXT NOT NULL DEFAULT '', brand_color TEXT NOT NULL DEFAULT '#111111', accent_color TEXT NOT NULL DEFAULT '#E53935',
+  logo_url TEXT NOT NULL DEFAULT '', style_prompt TEXT NOT NULL DEFAULT '',
+  publish_youtube TEXT NOT NULL DEFAULT 'FALSE', publish_telegram TEXT NOT NULL DEFAULT 'FALSE', publish_tiktok TEXT NOT NULL DEFAULT 'FALSE',
+  youtube_privacy TEXT NOT NULL DEFAULT 'private', stock_sources TEXT NOT NULL DEFAULT '',
+  cut_pauses TEXT NOT NULL DEFAULT 'TRUE', pause_cut_ms INT NOT NULL DEFAULT 700, pause_keep_ms INT NOT NULL DEFAULT 150,
+  cut_retakes TEXT NOT NULL DEFAULT 'TRUE',
+  created_at TIMESTAMPTZ DEFAULT now(), updated_at TIMESTAMPTZ DEFAULT now(), updated_by TEXT,
+  PRIMARY KEY (workspace_id, id));
 CREATE TABLE IF NOT EXISTS studio_metrics (
   at TIMESTAMPTZ NOT NULL DEFAULT now(), ram_used_pct REAL, ram_avail_gb REAL, swap_used_gb REAL, cpu_pct REAL, steal_pct REAL,
   load1 REAL, disk_free_gb REAL, busy BOOLEAN);

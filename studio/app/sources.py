@@ -95,6 +95,9 @@ def list_sources(ws: str = config.WORKSPACE) -> list:
 
 def directions(ws: str = config.WORKSPACE) -> list:
     found = {'news'}
+    if db.table_exists('studio_directions'):
+        for r in db.q('SELECT id FROM studio_directions WHERE workspace_id = %s', (ws,)):
+            found.add(r['id'])
     for r in db.q('SELECT DISTINCT direction_id FROM studio_sources WHERE workspace_id = %s', (ws,)):
         found.add(r['direction_id'])
     if db.table_exists('k_episodes'):

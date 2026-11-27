@@ -3,7 +3,7 @@ import anyio
 from mcp.server.fastmcp import FastMCP
 from mcp.server.transport_security import TransportSecuritySettings
 
-from . import content, costs, db, feeds, logs, n8n, services, sources
+from . import content, costs, db, directions, feeds, logs, n8n, services, sources
 
 mcp = FastMCP(
     'bez-skazok-studio',
@@ -125,6 +125,13 @@ async def auto_group_sources() -> dict:
     """Разложить по группам источники без группы: Студия узнаёт известные каналы и сайты и применяет простые правила
     (госсайты — первоисточники, российские сайты — только сигнал, YouTube — мнения). Незнакомые остаются без группы."""
     return await _run(_src_call, sources.auto_group, 'claude-mcp')
+
+
+@mcp.tool()
+async def list_directions() -> list:
+    """Направления (рубрики) и их настройки: длительность, стиль сценария, виды вставок, монтаж, папка на Диске, публикация.
+    Только чтение: менять — в Студии, раздел «Направления»."""
+    return await _run(directions.list_)
 
 
 @mcp.tool()
