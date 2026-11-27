@@ -459,6 +459,8 @@ details.ep-raw > summary { cursor: pointer; list-style: revert; }
 .conn-form label { display: grid; gap: 6px; font-weight: 500; }
 .conn-acc { display: grid; gap: 4px; padding: 12px; border: 1px solid var(--line); border-radius: var(--radius-sm); margin-bottom: 8px; }
 .conn-acc-t { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.conn-warn { color: var(--warn); font-size: 13px; font-weight: 500; }
+.conn-acc .note { margin-top: 8px; }
 .conn-acc .btn { justify-self: start; margin-top: 6px; }
 .conn-acc .actions { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
 .conn-acc .actions .btn { margin-top: 0; }

@@ -316,8 +316,11 @@ def _src_errors(fn, *a, **kw):
 
 
 @app.get('/api/connections')
-def connections_list(user=Depends(auth.current_user)):
-    return {**connections.overview(user['workspace_id']), 'meta': meta.status(user['workspace_id'])}
+def connections_list(recheck: bool = False, user=Depends(auth.current_user)):
+    if recheck:  # «Проверить вход» — спросить YouTube сейчас, не дожидаясь 10 минут
+        connections.youtube_check(force=True)
+    return {**connections.overview(user['workspace_id']), 'meta': meta.status(user['workspace_id']),
+            'n8n_credentials_url': (config.N8N_PUBLIC_URL + '/home/credentials') if config.N8N_PUBLIC_URL else ''}
 
 
 # ---------- Facebook и Threads: вход через Meta прямо из Студии ----------

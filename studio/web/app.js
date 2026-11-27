@@ -409,6 +409,15 @@
   const PLAT_ICON = { youtube: () => I.yt, facebook: () => I.fb, threads: () => I.threads };
   const HOWTO_YT = ['В n8n открой Credentials → Add credential → «YouTube OAuth2 API».', 'Нажми «Sign in with Google» и войди той почтой, на которой канал.',
     'Назови вход «YouTube — канал …» и сохрани — он сам появится здесь.'];
+  // запись входа в n8n есть, но вход в Google не выполнен (или устарел) — что сделать
+  const HOWTO_YT_LOGIN = ['Открой n8n → слева «Credentials» (учётные данные) → запись этого входа.',
+    'Нажми «Sign in with Google» и войди почтой, на которой канал «Без сказок».',
+    'Если Google спросит, какой аккаунт или канал, — выбери канал «Без сказок», затем «Разрешить» (Allow).',
+    'Если n8n просит Client ID и Client Secret — остановись и напиши мне.',
+    'Вернись сюда и нажми «Проверить вход» — появится имя канала.'];
+  const YT_STATE = { ok: ['ok', 'вход выполнен'], no_login: ['warn', 'вход в Google не выполнен — публиковать на YouTube нельзя'],
+    expired: ['err', 'вход устарел — войди в Google ещё раз'], no_channel: ['warn', 'у этой почты нет канала YouTube — войди почтой, где канал'],
+    error: ['err', 'проверка не прошла'], unknown: ['', 'вход не проверен'] };
   // один раз на developers.facebook.com: одно приложение, в нём два сценария — страница и Threads
   const META_HOWTO = {
     facebook: ['Открой developers.facebook.com → «Мои приложения» → «Создать приложение». Сценарии: «Управлять всем на своей Странице» и (для Threads) «Доступ к Threads API».',
@@ -481,13 +490,23 @@
     const card = (pid) => {
       const p = P[pid] || { accounts: [], directions: [], publications: [] };
       const isMeta = pid !== 'youtube';
-      const [st, tone] = isMeta ? metaState(pid) : [p.accounts.length ? 'подключено' : 'не подключено', p.accounts.length ? 'ok' : ''];
-      const accs = p.accounts.map(a => `<div class="conn-acc"><div class="conn-acc-t"><span class="dot ok"></span><b>${esc(a.title)}</b>
+      const ytOk = p.accounts.some(a => a.check && a.check.state === 'ok');
+      const [st, tone] = isMeta ? metaState(pid) : ytOk ? ['подключено', 'ok'] : p.accounts.length ? ['нужно войти', 'warn'] : ['не подключено', ''];
+      const accs = p.accounts.map(a => {
+        const ck = a.check || { state: 'unknown', channels: [] };
+        const [dot, label] = YT_STATE[ck.state] || YT_STATE.unknown;
+        const n8nLink = d.n8n_credentials_url ? ` <a href="${esc(d.n8n_credentials_url)}" target="_blank" rel="noopener">открыть n8n</a>` : '';
+        return `<div class="conn-acc"><div class="conn-acc-t"><span class="dot ${dot}"></span><b>${esc(a.title)}</b>
           ${a.url ? `<a href="${esc(a.url)}" target="_blank" rel="noopener">открыть</a>` : ''}</div>
+          <div class="${ck.state === 'ok' ? 'faint' : 'conn-warn'}">${esc(label)}${ck.state === 'error' && ck.error ? ': ' + esc(ck.error) : ''}</div>
+          ${(ck.channels || []).map(ch => `<div class="faint">канал: <a href="${esc(ch.url)}" target="_blank" rel="noopener">${esc(ch.title)}</a></div>`).join('')}
           <div class="faint">вход в n8n: ${esc(a.credential_name)}</div>
           <div class="faint">${a.used_by.length ? 'пользуется: ' + esc(a.used_by.join(', ')) : 'пока ни один процесс не публикует'}</div>
           ${a.notes ? `<div class="faint">${esc(a.notes)}</div>` : ''}
-          <button class="btn small" data-edit="${esc(a.credential_id)}">${I.pencil}Изменить</button></div>`).join('');
+          ${ck.state !== 'ok' && ck.state !== 'unknown' ? `<div class="note"><b>Как войти</b>${n8nLink}<ol class="conn-steps">${HOWTO_YT_LOGIN.map(x => `<li>${esc(x)}</li>`).join('')}</ol></div>` : ''}
+          <div class="actions"><button class="btn small" data-edit="${esc(a.credential_id)}">${I.pencil}Изменить</button>
+            <button class="btn small" data-recheck>Проверить вход</button></div></div>`;
+      }).join('');
       const dirs = p.directions.length ? p.directions.map(x => badge(x.name + (x.privacy ? ' · ' + (PRIV[x.privacy] || x.privacy) : ''), x.enabled ? 'info' : '')).join(' ')
         : `<span class="muted">ни одно направление сюда не публикует${isMeta ? ' — включается в «Направлениях» → Публикация' : ''}</span>`;
       const pubs = p.publications.length ? `<ul class="rows">${p.publications.map(x => `<li><div class="grow"><div class="title">${x.url
@@ -504,8 +523,12 @@
     };
     view.lastElementChild.outerHTML = (d.error ? failBox('Не получилось спросить n8n: ' + d.error) : '') +
       `<div class="grid conns">${['youtube', 'facebook', 'threads'].map(card).join('')}</div>
-       <div class="note" style="margin-top:16px">Пароли сюда не вводятся. YouTube входит через n8n. Facebook и Threads — кнопкой «Подключить»: входишь на сайте Meta, а Студия получает доступ и хранит его зашифрованным, никому не показывая. Куда публикует каждое направление — в «Направлениях».</div>`;
+       <div class="note" style="margin-top:16px">Пароли сюда не вводятся. YouTube входит через n8n — статус здесь проверяется по-настоящему: «подключено» только когда вход в Google выполнен. Facebook и Threads — кнопкой «Подключить»: входишь на сайте Meta, а Студия получает доступ и хранит его зашифрованным, никому не показывая. Куда публикует каждое направление — в «Направлениях».</div>`;
     view.querySelectorAll('[data-copy]').forEach(b => b.addEventListener('click', () => copyText(b.dataset.copy)));
+    view.querySelectorAll('[data-recheck]').forEach(b => b.addEventListener('click', async () => {
+      b.disabled = true;
+      try { await api('/api/connections?recheck=1'); toast('Проверил'); route(); } catch (e) { toast(e.message, true); b.disabled = false; }
+    }));
     view.querySelectorAll('[data-edit]').forEach(b => b.addEventListener('click', () => {
       const a = Object.values(P).flatMap(p => p.accounts).find(x => x.credential_id === b.dataset.edit);
       if (!a) return;
