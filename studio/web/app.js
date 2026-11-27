@@ -306,6 +306,155 @@
     }));
   }
 
+  // ---------- публикация: тексты для площадок и кнопки «Опубликовать» (тексты пишет Claude, правишь здесь) ----------
+  const pubCnt = (n, lim) => lim ? `<span class="pub-cnt${n > lim ? ' over' : ''}">${n} / ${lim}</span>` : '';
+  const pubFld = (path, label, val, o = {}) => `<label class="pub-f"><span><span class="pub-lbl">${label}</span>${pubCnt((val || '').length, o.lim)}</span>${o.area
+    ? `<textarea class="input" rows="${o.rows || 3}" data-f="${esc(path)}"${o.lim ? ` data-lim="${o.lim}"` : ''}>${esc(val || '')}</textarea>`
+    : `<input class="input" data-f="${esc(path)}"${o.lim ? ` data-lim="${o.lim}"` : ''} value="${esc(val || '')}">`}</label>`;
+  const pubPost = (i, val, lim) => `<div class="pub-post">${pubFld('threads.' + i, 'Пост ' + (i + 1), val, { area: true, rows: 3, lim })}
+    <button class="btn small icon" data-thdel title="Убрать пост" aria-label="Убрать пост">×</button></div>`;
+  function pubSection(e) {
+    const p = e.pub;
+    if (!p || (!p.texts && !p.can_write)) return '';
+    const head = `<div class="section-t">Публикация</div>`;
+    if (!p.texts) return head + `<div class="note">${p.video_ready ? 'Тексты для площадок Claude пишет сам сразу после монтажа. Если их долго нет — нажми кнопку.'
+      : 'Тексты для площадок появятся сами после монтажа. Можно написать уже сейчас — по сценарию.'}
+      <div style="margin-top:10px"><button class="btn primary" data-pubgen>Написать тексты</button></div></div>`;
+    const t = p.texts, L = p.limits || {}, pd = p.published || {}, soc = (e.video && e.video.social) || {};
+    const ctags = (p.channel_tags || []).join(' ');
+    const tagStr = a => (a || []).join(' ');
+    const card = (part, title, body, foot) => `<div class="pub-card" data-part="${part}"><div class="pub-h"><b>${title}</b>
+      <button class="btn small" data-regen="${part}" title="Claude перепишет только эту часть">${I.refresh}Переписать</button></div>${body}${foot ? `<div class="pub-foot">${foot}</div>` : ''}</div>`;
+    const yt = t.youtube || {};
+    let ytFoot;
+    if (pd.youtube && pd.youtube.url) ytFoot = `<span class="dot ok"></span><a href="${esc(pd.youtube.url)}" target="_blank" rel="noopener">Выпуск на YouTube</a>
+      <span class="faint">если доступ ограниченный — открой его в YouTube Studio</span>`;
+    else if (e.status === 'publish_requested' || e.status === 'publishing') ytFoot = `<span class="faint">Загружается на YouTube — итог придёт в Telegram…</span>`;
+    else if ((e.actions || []).includes('publish')) ytFoot = `<button class="btn primary" data-pubto="youtube">Опубликовать на YouTube</button><span class="faint">выпуск и шортсы, доступ — как в направлении</span>`;
+    else ytFoot = `<span class="faint">${p.video_ready ? 'Опубликовать можно, когда выпуск ждёт проверки' : 'Кнопка появится после монтажа'}</span>`;
+    const ytCard = card('youtube', 'YouTube · выпуск',
+      pubFld('youtube.title', 'Заголовок', yt.title, { lim: L.yt_title }) +
+      pubFld('youtube.description', 'Описание', yt.description, { area: true, rows: 5, lim: L.yt_desc }) +
+      pubFld('youtube.hashtags', 'Хэштеги по темам', tagStr(yt.hashtags)) +
+      `<div class="faint pub-hint">Всегда добавятся: ${esc(ctags || '— задай в «Направлениях»')}. Главы, источники и авторы вставок допишутся сами.</div>`, ytFoot);
+    const shs = p.shorts || [];
+    const shBody = shs.length ? shs.map(s => {
+      const x = (t.shorts || {})[s.name] || {};
+      const link = pd.youtube && pd.youtube.shorts && pd.youtube.shorts[s.name];
+      return `<div class="pub-short"><div class="pub-h"><b>${esc(x.title || s.title || s.name)}</b><span class="pub-btns">
+        ${s.file ? `<a class="btn small" href="/api/episodes/${encodeURIComponent(e.id)}/file/${encodeURIComponent(s.name)}" download>${I.download}Скачать</a>` : ''}
+        <button class="btn small" data-copytt="${esc(s.name)}">${I.copy}Подпись для TikTok</button></span></div>
+        ${pubFld(`shorts.${s.name}.title`, 'Заголовок на YouTube', x.title, { lim: L.short_title })}
+        ${pubFld(`shorts.${s.name}.description`, 'Описание на YouTube', x.description, { area: true, rows: 2 })}
+        ${pubFld(`shorts.${s.name}.tiktok`, 'Подпись для TikTok', x.tiktok, { area: true, rows: 2 })}
+        ${pubFld(`shorts.${s.name}.hashtags`, 'Хэштеги', tagStr(x.hashtags))}
+        ${link ? `<div class="pub-foot"><span class="dot ok"></span><a href="${esc(link)}" target="_blank" rel="noopener">Шортс на YouTube</a></div>` : ''}</div>`;
+    }).join('') : `<div class="faint">Шортсов в этом выпуске нет.</div>`;
+    const shCard = card('shorts', 'Шортсы — YouTube и TikTok', `<div class="faint pub-hint">На YouTube шортсы уходят вместе с выпуском, в описание добавится ссылка на полный выпуск.
+      В TikTok выкладываешь сам: «Скачать» и «Подпись для TikTok» (текст с хэштегами — в буфер обмена).</div>` + shBody);
+    const fb = pd.facebook || {};
+    const fbErr = soc.facebook && !soc.facebook.ok ? soc.facebook.error : '';
+    let fbFoot;
+    if (fb.url) fbFoot = `<span class="dot ok"></span><a href="${esc(fb.url)}" target="_blank" rel="noopener">Опубликовано в Facebook</a>`;
+    else if (soc.pending) fbFoot = `<span class="faint">Публикуется в фоне — длинное видео грузится несколько минут…</span>`;
+    else if (p.video_ready) fbFoot = `<button class="btn primary" data-pubto="facebook">${fbErr ? 'Повторить' : 'Опубликовать в Facebook'}</button>`
+      + (fbErr ? `<span class="pub-err">${esc(fbErr)}</span>` : `<span class="faint">выйдет сразу, для всех</span>`);
+    else fbFoot = `<span class="faint">Кнопка появится после монтажа</span>`;
+    const fbCard = card('facebook', 'Facebook · видео на страницу',
+      pubFld('facebook.text', 'Текст над видео', (t.facebook || {}).text, { area: true, rows: 3 }) +
+      `<div class="faint pub-hint">Заголовок — как у YouTube. Допишутся главы, источники и хэштеги: ${esc([ctags, tagStr(yt.hashtags)].filter(Boolean).join(' '))}.</div>`, fbFoot);
+    const th = pd.threads || {};
+    const posts = t.threads || [];
+    const thErr = soc.threads && !soc.threads.ok ? soc.threads.error : '';
+    let thFoot;
+    if (th.id && th.posted >= posts.length) thFoot = `<span class="dot ok"></span>${th.url ? `<a href="${esc(th.url)}" target="_blank" rel="noopener">Опубликовано в Threads</a>` : 'Опубликовано в Threads'}`;
+    else if (soc.pending) thFoot = `<span class="faint">Публикуется…</span>`;
+    else thFoot = `<button class="btn primary" data-pubto="threads">${th.posted ? 'Продолжить цепочку' : thErr ? 'Повторить' : 'Опубликовать в Threads'}</button>`
+      + (thErr ? `<span class="pub-err">${esc(thErr)}</span>`
+        : `<span class="faint">${th.posted ? `вышло ${th.posted} из ${posts.length} — продолжу с места`
+          : fb.url ? 'к первому посту прикрепится ссылка на видео в Facebook' : 'ссылка на видео прикрепится, если выпуск уже в Facebook — опубликуй его первым'}</span>`);
+    const thCard = card('threads', 'Threads · цепочка постов', `<div class="pub-posts">${posts.map((x, i) => pubPost(i, x, L.th_post)).join('')}</div>
+      <div><button class="btn small" data-thadd>+ пост</button></div>`, thFoot);
+    const who = [t.generated_at ? `написал Claude ${dt(t.generated_at)}` : '', t.edited_at ? `правил ${esc(t.edited_by || '')} ${dt(t.edited_at)}` : ''].filter(Boolean).join(' · ');
+    return head + `<div class="pub" data-pub>${ytCard}${shCard}${fbCard}${thCard}
+      <div class="pub-save"><button class="btn primary" data-pubsave disabled>Сохранить правки</button>
+        <button class="btn" data-pubgen>Переписать всё</button><span class="faint">${who}</span></div></div>`;
+  }
+  function bindPub(box, e, id) {
+    const base = '/api/episodes/' + encodeURIComponent(id);
+    const root = box.querySelector('[data-pub]');
+    box.querySelectorAll('[data-pubgen]').forEach(b => b.addEventListener('click', async () => {
+      if (root && !confirm(root.dataset.dirty ? 'Несохранённые правки пропадут. Переписать все тексты?' : 'Claude перепишет все тексты заново — твои правки пропадут. Переписать?')) return;
+      const was = b.innerHTML;
+      b.disabled = true; b.textContent = 'Claude пишет… до минуты';
+      try { await api(base + '/pub/generate', { body: {} }); toast('Тексты готовы'); openEpisode(id); }
+      catch (err) { toast(err.message, true); b.disabled = false; b.innerHTML = was; }
+    }));
+    if (!root) return;
+    const saveBtn = root.querySelector('[data-pubsave]');
+    const mark = () => { root.dataset.dirty = '1'; saveBtn.disabled = false; };
+    const count = el => {
+      const c = el.closest('.pub-f').querySelector('.pub-cnt'), lim = +el.dataset.lim;
+      if (c && lim) { c.textContent = el.value.length + ' / ' + lim; c.classList.toggle('over', el.value.length > lim); }
+    };
+    const renum = () => root.querySelectorAll('.pub-post').forEach((el, i) => { el.querySelector('.pub-lbl').textContent = 'Пост ' + (i + 1); });
+    root.addEventListener('input', ev => { if (ev.target.matches('[data-f]')) { mark(); count(ev.target); } });
+    root.addEventListener('click', ev => {
+      const del = ev.target.closest('[data-thdel]');
+      if (del) { del.closest('.pub-post').remove(); renum(); mark(); }
+    });
+    root.querySelector('[data-thadd]').addEventListener('click', () => {
+      const wrap = root.querySelector('.pub-posts');
+      wrap.insertAdjacentHTML('beforeend', pubPost(wrap.children.length, '', (e.pub.limits || {}).th_post));
+      wrap.lastElementChild.querySelector('textarea').focus();
+      mark();
+    });
+    const collect = () => {
+      const out = { youtube: {}, shorts: {}, facebook: {}, threads: [] };
+      root.querySelectorAll('[data-f]').forEach(el => {
+        const [a, b, c] = el.dataset.f.split('.');
+        if (a === 'threads') { if (el.value.trim()) out.threads.push(el.value); }
+        else if (a === 'shorts') (out.shorts[b] = out.shorts[b] || {})[c] = el.value;
+        else out[a][b] = el.value;
+      });
+      return out;
+    };
+    const save = async () => { await api(base + '/pub', { method: 'PUT', body: collect() }); delete root.dataset.dirty; saveBtn.disabled = true; };
+    saveBtn.addEventListener('click', async () => {
+      saveBtn.disabled = true;
+      try { await save(); toast('Сохранено'); } catch (err) { toast(err.message, true); saveBtn.disabled = false; }
+    });
+    root.querySelectorAll('[data-regen]').forEach(b => b.addEventListener('click', async () => {
+      if (root.dataset.dirty && !confirm('Несохранённые правки пропадут. Переписать эту часть?')) return;
+      b.disabled = true; b.textContent = 'пишет…';
+      try { await api(base + '/pub/generate', { body: { part: b.dataset.regen } }); toast('Переписано'); openEpisode(id); }
+      catch (err) { toast(err.message, true); b.disabled = false; b.innerHTML = I.refresh + 'Переписать'; }
+    }));
+    root.querySelectorAll('[data-copytt]').forEach(b => b.addEventListener('click', () => {
+      const n = b.dataset.copytt;
+      const v = f => ((root.querySelector(`[data-f="shorts.${n}.${f}"]`) || {}).value || '').trim();
+      const own = v('hashtags').split(/[\s,;]+/).filter(Boolean).map(x => x.startsWith('#') ? x : '#' + x);
+      const tags = [...new Set([...(e.pub.channel_tags || []), ...own])];
+      copyText([v('tiktok'), tags.join(' ')].filter(Boolean).join('\n\n'));
+    }));
+    const ASK = {
+      youtube: 'Загрузить выпуск и шортсы на YouTube? Доступ — как в направлении (сейчас «ограниченный»: откроешь сам в YouTube Studio).',
+      facebook: 'Опубликовать выпуск в Facebook? Видео выйдет сразу, для всех.',
+      threads: 'Опубликовать цепочку в Threads? Посты выйдут сразу, для всех.',
+    };
+    root.querySelectorAll('[data-pubto]').forEach(b => b.addEventListener('click', async () => {
+      const pl = b.dataset.pubto;
+      if (!confirm(ASK[pl])) return;
+      b.disabled = true;
+      try {
+        if (root.dataset.dirty) await save();
+        await api(base + '/publish/' + pl, { body: {} });
+        toast(pl === 'youtube' ? 'Отправил на YouTube — начнётся в течение минуты' : 'Публикую — итог придёт в Telegram и появится здесь');
+        openEpisode(id);
+      } catch (err) { toast(err.message, true); b.disabled = false; }
+    }));
+  }
+
   async function openEpisode(id) {
     const d0 = drawer('Выпуск', esc(id), loading());
     let e;
@@ -316,7 +465,8 @@
     const soc = (v && v.social) || {};
     const socLink = (k, t) => soc[k] && soc[k].ok && soc[k].url ? `<a class="btn" href="${esc(soc[k].url)}" target="_blank" rel="noopener">${t}</a>` : '';
     const socErr = [['facebook', 'Facebook'], ['threads', 'Threads']].filter(([k]) => soc[k] && !soc[k].ok).map(([k, t]) => `${t}: ${esc(soc[k].error)}`);
-    const acts = (e.actions || []).filter(a => EP_ACT[a]);
+    const newPub = !!(e.pub && e.pub.texts);  // есть тексты публикации — публикуем кнопками у площадок
+    const acts = (e.actions || []).filter(a => EP_ACT[a] && !(newPub && a === 'publish'));
     const review = v ? [
       ...(v.review || []).map(x => `<li><button class="btn small" data-seek="${x.at_ms || 0}">${tc(x.at_ms)}</button><div class="grow">
         <div class="title">Вставка ${esc(x.marker)} — проверь место</div><div class="meta">уверенность ${Math.round((x.conf || 0) * 100)}%</div></div></li>`),
@@ -331,24 +481,26 @@
           : e.preview_url ? `<a class="btn primary" href="${esc(e.preview_url)}" target="_blank" rel="noopener">Смотреть превью</a>` : ''}
         ${e.youtube_url ? `<a class="btn" href="${esc(e.youtube_url)}" target="_blank" rel="noopener">YouTube</a>` : ''}
         ${socLink('facebook', 'Facebook')}${socLink('threads', 'Threads')}
-        ${(e.social_todo || []).length && !socErr.length ? `<button class="btn" data-social>${(e.social_todo.length > 1 ? 'В Facebook и Threads'
+        ${!newPub && (e.social_todo || []).length && !socErr.length ? `<button class="btn" data-social>${(e.social_todo.length > 1 ? 'В Facebook и Threads'
           : e.social_todo[0] === 'facebook' ? 'В Facebook' : 'В Threads')}</button>` : ''}
         ${e.kind === 'script' ? `<a class="btn" href="#/prompter/view?s=${encodeURIComponent(e.id)}">Открыть в суфлёре</a>` : ''}
         ${EP_BUSY.includes(e.status) ? '' : `<button class="btn danger" data-delep>${I.trash}Удалить</button>`}
       </div>
       ${e.status === 'publish_requested' ? `<div class="note">Публикация начнётся в течение минуты — итог придёт в Telegram и появится здесь.</div>` : ''}
       ${soc.pending ? `<div class="note">Facebook и Threads публикуются в фоне — длинное видео грузится несколько минут, итог придёт в Telegram.</div>` : ''}
-      ${socErr.length && !soc.pending ? `<div class="note warnnote">Не опубликовано — ${socErr.join(' · ')}.
+      ${!newPub && socErr.length && !soc.pending ? `<div class="note warnnote">Не опубликовано — ${socErr.join(' · ')}.
         <div style="margin-top:8px"><button class="btn small" data-social>Повторить Facebook и Threads</button> <span class="faint">уже выложенное второй раз не пойдёт</span></div></div>` : ''}
       ${v ? `
         ${review.length ? `<div class="section-t">Проверь перед публикацией</div><div class="card"><ul class="rows">${review.join('')}</ul></div>` : ''}
         ${(v.shorts || []).length ? `<div class="section-t">Шортсы · ${v.shorts.length}</div><div class="ep-shorts">${v.shorts.map(s => `<figure>
           <video controls preload="none" playsinline src="${esc(s.url)}"></video><figcaption>${esc(s.title)}</figcaption></figure>`).join('')}</div>` : ''}
+        ${pubSection(e)}
         <div class="section-t">Монтаж</div><dl class="kv">
           <dt>Вставки</dt><dd>${v.inserts_placed ?? '—'}${(v.missed || []).length ? ` · не встали: ${v.missed.length}` : ''}</dd>
           <dt>Вырезано пауз и дублей</dt><dd>${v.cuts ?? 0}${v.cut_ms ? ` · ${tc(v.cut_ms)}` : ''}</dd>
           <dt>Субтитры</dt><dd><a href="${esc(v.subs_url)}" target="_blank" rel="noopener">subs.srt</a></dd></dl>
         ${v.chapters_text ? `<div class="section-t">Главы для описания</div><pre class="json">${esc(v.chapters_text)}</pre>` : ''}` : ''}
+      ${v ? '' : pubSection(e)}
       <div class="section-t">Главное</div>
       <dl class="kv"><dt>Создан</dt><dd>${dt(e.created_at)}</dd><dt>Обновлён</dt><dd>${dt(e.updated_at)}</dd>
         ${e.script_id ? `<dt>Сценарий</dt><dd class="mono">${esc(e.script_id)}</dd>` : ''}
@@ -373,6 +525,7 @@
       vid.play().catch(() => {});
       vid.scrollIntoView({ behavior: 'smooth', block: 'center' });
     }));
+    bindPub(box, e, id);
     const socBtn = box.querySelector('[data-social]');
     if (socBtn) socBtn.addEventListener('click', async () => {
       socBtn.disabled = true;
@@ -426,7 +579,7 @@
       '«Вход через Facebook для бизнеса» → «Настройки»: адрес возврата (ниже) вставь в «Действительные URI перенаправления для OAuth» и нажми Enter; адрес деавторизации и удаления данных — в поля ниже; «Сохранить изменения».',
       '«Вход через Facebook для бизнеса» → «Конфигурации» → «Создать конфигурацию»: «Общий», «Маркер доступа пользователя», разрешения pages_show_list, pages_read_engagement, pages_manage_posts, business_management.',
       'Кнопкой ниже впиши номер приложения, секрет («Основное» → «Показать») и номер конфигурации — не в чат. Потом «Подключить».'],
-    threads: ['В том же приложении сценарий «Доступ к Threads API» → «Настроить»: добавь threads_content_publish.',
+    threads: ['В том же приложении сценарий «Доступ к Threads API» → «Настроить»: добавь threads_content_publish и threads_manage_replies (ответы — для цепочки постов).',
       'Там же «Настройки»: адрес возврата (ниже) — в поле перенаправления, Enter; адреса Uninstall и Delete — в свои поля; «Сохранить». «Идентификатор приложения Threads» и «Секрет приложения Threads» — свои, не как у Facebook.',
       '«Роли в приложении» → «Роли» → «Добавить людей» → «Тестировщик Threads» → твой аккаунт Threads. Приглашение прими на threads.com: Настройки → «Ещё настройки» → «Разрешения для сайтов» → «Приглашения».',
       'Впиши номер и секрет Threads сюда кнопкой ниже и нажми «Подключить».'],
@@ -668,11 +821,12 @@
       <div class="card"><div class="card-h"><h2>Публикация</h2></div><div class="card-b">
         ${row('YouTube', sw('publish_youtube', v.publish_youtube), 'выпуск и шортсы')}
         ${row('Доступ к видео', sel('youtube_privacy', d.privacy, v.youtube_privacy))}
-        ${row('Facebook', sw('publish_facebook', v.publish_facebook, !cn.facebook && !v.publish_facebook),
-          cn.facebook ? 'длинное видео на страницу' : 'сначала подключи страницу в <a href="#/connections">«Подключениях»</a>')}
-        ${row('Threads', sw('publish_threads', v.publish_threads, !cn.threads && !v.publish_threads),
-          cn.threads ? 'новость текстом: заголовок, главные темы и ссылка на выпуск' : 'сначала подключи в <a href="#/connections">«Подключениях»</a>')}
-        <div class="note">Facebook и Threads публикуются после YouTube, тем же нажатием «Опубликовать». Ссылка в Threads ведёт на YouTube, если видео там открыто, иначе — на Facebook.</div>
+        ${row('Хэштеги канала', txt('hashtags', v.hashtags || '', '#БезСказок #новости'), 'добавляются ко всем публикациям; ещё 2–3 по темам выпуска пишет Claude')}
+        ${row('Facebook вместе с YouTube', sw('publish_facebook', v.publish_facebook, !cn.facebook && !v.publish_facebook),
+          cn.facebook ? 'выключено — публикуешь кнопкой на странице выпуска' : 'сначала подключи страницу в <a href="#/connections">«Подключениях»</a>')}
+        ${row('Threads вместе с YouTube', sw('publish_threads', v.publish_threads, !cn.threads && !v.publish_threads),
+          cn.threads ? 'выключено — публикуешь кнопкой на странице выпуска' : 'сначала подключи в <a href="#/connections">«Подключениях»</a>')}
+        <div class="note">На странице выпуска у каждой площадки своя кнопка «Опубликовать»: Facebook и Threads выходят сразу, YouTube — с доступом, как выше. Включённые здесь Facebook и Threads выйдут ещё и сами, следом за YouTube.</div>
       </div></div>
       <div class="card"><div class="card-h"><h2>Оформление и папка</h2></div><div class="card-b">
         ${row('Цвет фона карточек', `<input class="input df-color" type="color" data-k="brand_color" value="${esc(v.brand_color)}">`)}

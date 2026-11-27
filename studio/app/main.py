@@ -3,6 +3,8 @@ import datetime as dt
 import hmac
 import json
 import logging
+import os
+import re
 import threading
 import time
 import urllib.parse
@@ -13,7 +15,7 @@ from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from starlette.concurrency import run_in_threadpool
 
-from . import apify, auth, catalog, config, connections, content, costs, db, directions, feeds, hostwatch, logs, meta, n8n, prompter, services, sources, vault
+from . import apify, auth, catalog, config, connections, content, costs, db, directions, feeds, hostwatch, logs, meta, n8n, prompter, pubtexts, services, sources, vault
 from .mcp_server import mcp
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s %(name)s %(levelname)s %(message)s')
@@ -44,6 +46,7 @@ async def lifespan(app: FastAPI):
     threading.Thread(target=hostwatch.loop, name='host-watch', daemon=True).start()
     threading.Thread(target=meta.loop, name='meta-refresh', daemon=True).start()
     threading.Thread(target=meta.queue_loop, name='meta-queue', daemon=True).start()
+    threading.Thread(target=pubtexts.loop, name='pub-texts', daemon=True).start()
     async with mcp.session_manager.run():
         yield
     db.close()
@@ -173,6 +176,60 @@ async def episode_action(eid: str, request: Request, user=Depends(auth.current_u
     auth.require_write(request)
     b = await _body(request)
     return await run_in_threadpool(_src_errors, services.episode_action, eid, str(b.get('action') or ''), user['login'])
+
+
+def _pub_errors(fn, *a, **kw):
+    try:
+        return fn(*a, **kw)
+    except pubtexts.PubError as e:
+        raise HTTPException(400, str(e))
+    except LookupError as e:
+        raise HTTPException(404, str(e))
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+
+
+@app.post('/api/episodes/{eid}/pub/generate')
+async def episode_pub_generate(eid: str, request: Request, user=Depends(auth.current_user)):
+    """Claude пишет тексты публикации (все или одну часть: youtube | shorts | facebook | threads). Ждём ответа — до минуты-двух."""
+    auth.require_write(request)
+    b = await _body(request)
+    return await run_in_threadpool(_pub_errors, pubtexts.generate, eid, user['login'], b.get('part') or None, user['workspace_id'])
+
+
+@app.put('/api/episodes/{eid}/pub')
+async def episode_pub_save(eid: str, request: Request, user=Depends(auth.current_user)):
+    """Сохранить правку текстов публикации."""
+    auth.require_write(request)
+    b = await _body(request)
+    return await run_in_threadpool(_pub_errors, pubtexts.save, eid, b, user['login'], user['workspace_id'])
+
+
+@app.post('/api/episodes/{eid}/publish/{platform}')
+async def episode_publish_to(eid: str, platform: str, request: Request, user=Depends(auth.current_user)):
+    """Кнопка «Опубликовать» у площадки на странице выпуска. Facebook и Threads — сразу (в фоне), YouTube — через К6."""
+    auth.require_write(request)
+    _owner(user)
+    if platform == 'youtube':
+        r = await run_in_threadpool(_src_errors, services.episode_action, eid, 'publish', user['login'])
+    elif platform in meta.KINDS:
+        r = await run_in_threadpool(_meta_errors, meta.request_publish, eid, user['workspace_id'], [platform])
+    else:
+        raise HTTPException(404, 'Неизвестная площадка')
+    db.audit(user['login'], 'episode_publish_to', {'id': eid, 'platform': platform}, user['workspace_id'])
+    return r
+
+
+@app.get('/api/episodes/{eid}/file/{name}')
+def episode_file(eid: str, name: str, user=Depends(auth.current_user)):
+    """Скачать готовый файл выпуска (шортс для TikTok или весь выпуск) — с сервера монтажа, только чтение."""
+    if not re.fullmatch(r'[A-Za-z0-9._-]{3,120}', eid) or not re.fullmatch(r'[A-Za-z0-9_-]{1,60}', name):
+        raise HTTPException(404, 'Нет такого файла')
+    root = os.path.realpath(config.MEDIA_DIR)
+    p = os.path.realpath(os.path.join(root, eid, 'out', name + '.mp4'))
+    if not p.startswith(root + os.sep) or not os.path.isfile(p):
+        raise HTTPException(404, 'Файла нет на сервере (уже убран?)')
+    return FileResponse(p, media_type='video/mp4', filename=f'{eid}-{name}.mp4')
 
 
 @app.delete('/api/episodes/{eid}')

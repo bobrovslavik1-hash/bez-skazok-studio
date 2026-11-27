@@ -481,3 +481,24 @@ details.conn-more[open] summary { margin-bottom: 8px; }
   .tabbar::-webkit-scrollbar { display: none; }
   .tabbar a { flex: 0 0 auto; min-width: 70px; padding: 4px 6px; white-space: nowrap; }
 }
+
+/* ---------- публикация: тексты для площадок на странице выпуска ---------- */
+.pub { display: grid; gap: 12px; }
+.pub-card { border: 1px solid var(--line); border-radius: var(--radius); padding: 12px 14px; background: var(--panel); display: grid; gap: 10px; }
+.pub-h { display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap; }
+.pub-h b { font-weight: 600; }
+.pub-btns { display: flex; gap: 6px; flex-wrap: wrap; }
+.pub-f { display: grid; gap: 4px; font-size: 12.5px; color: var(--muted); }
+.pub-f > span { display: flex; justify-content: space-between; gap: 8px; }
+.pub-f .input { width: 100%; color: var(--text); font-size: 14px; }
+.pub-f textarea.input { height: auto; min-height: 56px; padding: 8px 10px; line-height: 1.45; resize: vertical; font-family: var(--font); }
+.pub-cnt { font-variant-numeric: tabular-nums; color: var(--faint); }
+.pub-cnt.over { color: var(--err); font-weight: 600; }
+.pub-hint { font-size: 12.5px; line-height: 1.4; }
+.pub-foot { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; border-top: 1px solid var(--line-2); padding-top: 10px; }
+.pub-err { color: var(--err); font-size: 12.5px; }
+.pub-short { border-top: 1px solid var(--line-2); padding-top: 10px; display: grid; gap: 8px; }
+.pub-posts { display: grid; gap: 8px; }
+.pub-post { display: grid; grid-template-columns: 1fr auto; gap: 6px; align-items: start; }
+.pub-post .btn.icon { margin-top: 20px; width: 30px; justify-content: center; padding: 0; }
+.pub-save { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; position: sticky; bottom: -1px; background: var(--panel); padding: 10px 0; border-top: 1px solid var(--line); z-index: 1; }

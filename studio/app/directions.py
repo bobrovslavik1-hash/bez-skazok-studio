@@ -20,7 +20,24 @@ STOCK = ('coverr', 'wikimedia', 'openverse', 'nasa')
 
 FLAGS = ('enabled', 'sources_on', 'ai_images', 'publish_youtube', 'publish_telegram', 'publish_tiktok', 'cut_pauses', 'cut_retakes',
          'publish_facebook', 'publish_threads')
-EXTRA = ('sort', 'publish_facebook', 'publish_threads')  # есть в Студии, но не в запросе n8n: Facebook и Threads публикует сама Студия
+EXTRA = ('sort', 'publish_facebook', 'publish_threads', 'hashtags')  # есть в Студии, но не в запросе n8n: Facebook и Threads публикует сама Студия
+TAG_RE = re.compile(r'#?([^\W_][\w]{0,49})')
+
+
+def tags(raw, limit: int = 10) -> list:
+    """Хэштеги из строки или списка: «#БезСказок новости, #война» → ['#БезСказок', '#новости', '#война']. Без повторов."""
+    # в списке «#бюджет ЕС» — один хэштег из двух слов: склеиваем; в строке пробел разделяет хэштеги
+    items = [re.sub(r'\s+', '', str(x or '')) for x in raw] if isinstance(raw, list) else re.split(r'[\s,;]+', str(raw or ''))
+    out, seen = [], set()
+    for it in items:
+        m = TAG_RE.fullmatch(str(it or '').strip())
+        if not m:
+            continue
+        t = '#' + m.group(1)
+        if t.lower() not in seen:
+            seen.add(t.lower())
+            out.append(t)
+    return out[:limit]
 LABELS = {'minutes': 'Длительность', 'words_per_min': 'Темп чтения', 'shorts': 'Шортсов', 'pause_cut_ms': 'Паузы длиннее',
           'pause_keep_ms': 'Оставлять от паузы', 'sort': 'Порядок'}
 INTS = {'minutes': (1, 90), 'words_per_min': (60, 250), 'shorts': (0, 5), 'pause_cut_ms': (200, 3000), 'pause_keep_ms': (0, 1000), 'sort': (0, 999)}
@@ -151,6 +168,12 @@ def _clean(data: dict) -> dict:
         out['drive_folder_id'] = fid
     if 'style_prompt' in data:
         out['style_prompt'] = str(data['style_prompt'] or '').strip()[:4000]
+    if 'hashtags' in data:
+        raw = data['hashtags']
+        bad = [w for w in (raw if isinstance(raw, list) else re.split(r'[\s,;]+', str(raw or ''))) if w and not TAG_RE.fullmatch(w.strip())]
+        if bad:
+            raise ValueError('Хэштег — одно слово из букв и цифр, можно слитно: ' + ', '.join(bad[:3]))
+        out['hashtags'] = ' '.join(tags(raw))
     if 'youtube_privacy' in data:
         if data['youtube_privacy'] not in PRIVACY:
             raise ValueError('Неизвестный доступ к видео')

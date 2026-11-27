@@ -36,7 +36,7 @@ THREADS = 'https://graph.threads.net'
 FB_DIALOG = 'https://www.facebook.com/v26.0/dialog/oauth'
 TH_DIALOG = 'https://threads.net/oauth/authorize'
 FB_SCOPES = 'pages_show_list,pages_read_engagement,pages_manage_posts,business_management'  # без business_management Facebook прячет страницы бизнес-портфолио
-TH_SCOPES = 'threads_basic,threads_content_publish'
+TH_SCOPES = 'threads_basic,threads_content_publish,threads_manage_replies'  # ответы — для цепочки постов
 KINDS = ('facebook', 'threads')
 APP_KEY = {'facebook': 'meta_app', 'threads': 'threads_app'}
 SECRET_KEY = {'facebook': 'meta_app_secret', 'threads': 'threads_app_secret'}
@@ -374,17 +374,25 @@ def loop() -> None:
 
 # ---------- публикация ----------
 def _texts(ep: dict) -> tuple:
+    """(заголовок, описание для Facebook, посты Threads). Есть тексты со страницы выпуска (pubtexts) — берём их;
+    нет — собираем по-старому из сценария: описание сценариста, главы, источники; в Threads один пост с темами."""
+    from . import pubtexts  # тексты публикации пишет и хранит pubtexts.py
     s = ep.get('script') or {}
     meta = ep.get('meta') or {}
-    title = (s.get('yt_title') or s.get('title') or ep['id'])[:250]
-    parts = [s.get('yt_description') or '']
+    p = pubtexts.for_publish(ep) or {}
+    title = (p.get('title') or s.get('yt_title') or s.get('title') or ep['id'])[:250]
+    parts = [p.get('fb_text') if p else (s.get('yt_description') or '')]
     if meta.get('chapters_text'):
         parts.append(meta['chapters_text'])
     srcs = [x for x in (s.get('source_list') or []) if isinstance(x, dict) and x.get('url')]
     if srcs:
         parts.append('Источники:\n' + '\n'.join('• ' + (x.get('source_name') + ': ' if x.get('source_name') else '') + str(x.get('title') or '')[:90] + ' — ' + x['url']
                                                 for x in srcs[:15]))
-    description = '\n\n'.join(p for p in parts if p)[:5000]
+    if p.get('fb_tags'):
+        parts.append(p['fb_tags'])
+    description = '\n\n'.join(x for x in parts if x)[:5000]
+    if p.get('threads'):
+        return title, description, [x[:500] for x in p['threads']]
     heads = [str(c.get('heading') or '').strip() for c in (s.get('chapters') or []) if isinstance(c, dict)]
     heads = [h for h in heads if h and h.lower() not in ('заход', 'вступление', 'итог', 'итоги')]
     text = title
@@ -393,7 +401,7 @@ def _texts(ep: dict) -> tuple:
         if len(text) + len(line) > 470:
             break
         text += line
-    return title, description, text[:500]
+    return title, description, [text[:500]]
 
 
 CHUNK_TRIES = 3
@@ -487,31 +495,50 @@ def _fb_publish(eid: str, title: str, description: str, ws: str) -> dict:
     return {'ok': True, 'id': vid, 'url': f"https://www.facebook.com/{page['id']}/videos/{vid}"}
 
 
-def _threads_publish(text: str, link: str, ws: str) -> dict:
+def _threads_post(th: dict, token: str, text: str, link: str = '', reply_to: str = '') -> str:
+    q = {'media_type': 'TEXT', 'text': text, 'access_token': token}
+    if link:
+        q['link_attachment'] = link
+    if reply_to:
+        q['reply_to_id'] = reply_to
+    c = _call('POST', THREADS + f"/v1.0/{th['user_id']}/threads", data=q)
+    for n in range(3):  # контейнеру нужно мгновение, прежде чем его можно опубликовать
+        time.sleep(3 * (n + 1))
+        try:
+            return str(_call('POST', THREADS + f"/v1.0/{th['user_id']}/threads_publish", data={'creation_id': c['id'], 'access_token': token})['id'])
+        except MetaError:
+            if n == 2:
+                raise
+    raise MetaError('Threads не опубликовал пост')
+
+
+def _threads_publish(posts: list, link: str, ws: str, done: list | None = None) -> dict:
+    """Цепочка: первый пост — со ссылкой на видео, каждый следующий — ответом на предыдущий.
+    done — посты, которые уже вышли: повтор продолжает с места, вышедшее второй раз не идёт."""
     th = db.get_setting(CONN_KEY['threads'], {}, ws) or {}
     token = vault.unseal(th.get('enc')) if th.get('enc') else None
     if not token:
-        return {'ok': False, 'error': 'Threads не подключён — Студия → Подключения'}
+        return {'ok': False, 'error': 'Threads не подключён — Студия → Подключения', 'chain': list(done or [])}
+    chain, err = list(done or []), ''
     try:
-        q = {'media_type': 'TEXT', 'text': text, 'access_token': token}
-        if link:
-            q['link_attachment'] = link
-        c = _call('POST', THREADS + f"/v1.0/{th['user_id']}/threads", data=q)
-        for n in range(3):  # контейнеру нужно мгновение, прежде чем его можно опубликовать
-            time.sleep(3 * (n + 1))
-            try:
-                pid = str(_call('POST', THREADS + f"/v1.0/{th['user_id']}/threads_publish", data={'creation_id': c['id'], 'access_token': token})['id'])
-                break
-            except MetaError:
-                if n == 2:
-                    raise
-        try:
-            url = _call('GET', THREADS + f'/v1.0/{pid}', {'fields': 'permalink', 'access_token': token}).get('permalink') or ''
-        except MetaError:
-            url = ''
-        return {'ok': True, 'id': pid, 'url': url}
+        for i in range(len(chain), len(posts)):
+            chain.append(_threads_post(th, token, posts[i], link if i == 0 else '', chain[-1] if chain else ''))
     except MetaError as e:
-        return {'ok': False, 'error': str(e)}
+        err = str(e)
+    if not chain:
+        return {'ok': False, 'error': err or 'не опубликовано', 'chain': []}
+    url = ''
+    if not done:
+        try:
+            url = _call('GET', THREADS + f'/v1.0/{chain[0]}', {'fields': 'permalink', 'access_token': token}).get('permalink') or ''
+        except MetaError:
+            pass
+    out = {'ok': len(chain) >= len(posts), 'id': chain[0], 'url': url, 'chain': chain}
+    if not out['ok']:
+        need = ' — для цепочки нужно разрешение threads_manage_replies: Meta → «Доступ к Threads API» → «Настроить» → «+ Добавить», ' \
+               'потом в Студии «Переподключить» Threads' if re.search(r'permission|разреш|\(10\)|#10', err, re.I) else ''
+        out['error'] = f'вышло {len(chain)} из {len(posts)} постов цепочки: {err}{need}'
+    return out
 
 
 def publish(eid: str, ws: str = config.WORKSPACE) -> dict:
@@ -521,18 +548,21 @@ def publish(eid: str, ws: str = config.WORKSPACE) -> dict:
     d = db.q1('SELECT name, publish_facebook, publish_threads, publish_youtube, youtube_privacy FROM studio_directions WHERE workspace_id = %s AND id = %s',
               (ws, ep['direction_id'])) or {}
     meta = ep.get('meta') or {}
-    title, description, text = _texts(ep)
+    tg = targets(eid, ws)
+    title, description, posts = _texts(ep)
     patch, out = {}, {}
-    if d.get('publish_facebook') == 'TRUE':
+    if 'facebook' in tg:
         if meta.get('fb_video_id'):
             out['facebook'] = {'ok': True, 'id': meta['fb_video_id'], 'url': meta.get('fb_url') or '', 'again': True}
         else:
             out['facebook'] = r = _fb_publish(eid, title, description, ws)
             if r['ok']:
                 patch.update(fb_video_id=r['id'], fb_url=r['url'])
-    if d.get('publish_threads') == 'TRUE':
-        if meta.get('threads_post_id'):
-            out['threads'] = {'ok': True, 'id': meta['threads_post_id'], 'url': meta.get('threads_url') or '', 'again': True}
+    if 'threads' in tg:
+        chain = list(meta.get('threads_chain') or ([meta['threads_post_id']] if meta.get('threads_post_id') else []))
+        total = int(meta.get('threads_total') or len(chain))
+        if chain and len(chain) >= total:
+            out['threads'] = {'ok': True, 'id': chain[0], 'url': meta.get('threads_url') or '', 'again': True}
         else:
             # ссылка — туда, где выпуск открыт для всех: YouTube (если не «ограниченный доступ»), иначе Facebook
             link = ''
@@ -540,9 +570,10 @@ def publish(eid: str, ws: str = config.WORKSPACE) -> dict:
                 link = 'https://youtu.be/' + ep['youtube_id']
             elif patch.get('fb_url') or meta.get('fb_url'):
                 link = patch.get('fb_url') or meta.get('fb_url')
-            out['threads'] = r = _threads_publish(text, link, ws)
-            if r['ok']:
-                patch.update(threads_post_id=r['id'], threads_url=r['url'])
+            out['threads'] = r = _threads_publish(posts, link, ws, chain)
+            if r.get('chain'):
+                patch.update(threads_post_id=r['chain'][0], threads_chain=r['chain'], threads_total=max(len(posts), len(r['chain'])),
+                             threads_url=r.get('url') or meta.get('threads_url') or '')
     if out:
         patch['social'] = {k: {'ok': v['ok'], 'url': v.get('url') or '', 'error': v.get('error') or '', 'at': _now().isoformat()}
                            for k, v in out.items()}
@@ -552,7 +583,12 @@ def publish(eid: str, ws: str = config.WORKSPACE) -> dict:
         r = out.get(k)
         if not r or r.get('again'):
             continue
-        lines.append(f"{label}: опубликовано {r.get('url') or ''}".rstrip() if r['ok'] else f"{label}: не вышло — {r['error']}")
+        if r['ok']:
+            lines.append(f"{label}: опубликовано {r.get('url') or ''}".rstrip())
+        elif r.get('chain'):  # цепочка Threads вышла не вся
+            lines.append(f"{label}: {r['error']} {r.get('url') or ''}".rstrip())
+        else:
+            lines.append(f"{label}: не вышло — {r['error']}")
     if lines:
         db.notify(f'🚀 {title}\n' + '\n'.join(lines), 'meta', ws)
     return out
@@ -563,7 +599,8 @@ _wake = threading.Event()
 MAX_TRIES = 3
 
 
-def targets(eid: str, ws: str = config.WORKSPACE) -> list:
+def flag_targets(eid: str, ws: str = config.WORKSPACE) -> list:
+    """Куда публикует направление выпуска («Направления» → Публикация)."""
     ep = db.q1('SELECT direction_id FROM k_episodes WHERE id = %s', (eid,))
     if not ep:
         raise LookupError('Нет такого выпуска')
@@ -571,12 +608,35 @@ def targets(eid: str, ws: str = config.WORKSPACE) -> list:
     return [k for k in KINDS if d.get('publish_' + k) == 'TRUE']
 
 
-def request_publish(eid: str, ws: str = config.WORKSPACE) -> dict:
-    """Поставить выпуск в очередь на Facebook и Threads (если направление туда публикует). Возвращает сразу."""
-    t = targets(eid, ws)
+def targets(eid: str, ws: str = config.WORKSPACE) -> list:
+    """Куда публикуем сейчас: что заказали кнопкой на странице выпуска, иначе — как в направлении."""
+    ep = db.q1("SELECT meta->'social_targets' AS only FROM k_episodes WHERE id = %s", (eid,))
+    if not ep:
+        raise LookupError('Нет такого выпуска')
+    only = ep.get('only')
+    if isinstance(only, list) and only:
+        return [k for k in KINDS if k in only]
+    return flag_targets(eid, ws)
+
+
+def request_publish(eid: str, ws: str = config.WORKSPACE, only: list | None = None) -> dict:
+    """Поставить выпуск в очередь на Facebook и/или Threads. only — кнопка на странице выпуска (площадка, нажатая человеком);
+    без only — как в направлении (так зовёт К6 после YouTube). Пока очередь не дошла, заказы складываются. Возвращает сразу."""
+    ep = db.q1('SELECT meta FROM k_episodes WHERE id = %s', (eid,))
+    if not ep:
+        raise LookupError('Нет такого выпуска')
+    if only is not None:
+        bad = [k for k in only if k not in KINDS]
+        if bad or not only:
+            raise ValueError('Неизвестная площадка')
+    want = set(only) if only else set(flag_targets(eid, ws))
+    m = ep.get('meta') or {}
+    if m.get('social_pending') and isinstance(m.get('social_targets'), list):
+        want |= set(m['social_targets'])
+    t = [k for k in KINDS if k in want]
     if t:
         db.x("UPDATE k_episodes SET meta = COALESCE(meta, '{}'::jsonb) || jsonb_build_object('social_pending', true, 'social_tries', 0, "
-             "'social_requested_at', now()::text) WHERE id = %s", (eid,))
+             "'social_requested_at', now()::text, 'social_targets', %s::jsonb) WHERE id = %s", (json.dumps(t), eid))
         _wake.set()
     return {'ok': True, 'targets': t, 'queued': bool(t)}
 

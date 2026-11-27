@@ -63,6 +63,9 @@ CREATE TABLE IF NOT EXISTS studio_directions (
   PRIMARY KEY (workspace_id, id));
 ALTER TABLE studio_directions ADD COLUMN IF NOT EXISTS publish_facebook TEXT NOT NULL DEFAULT 'FALSE';
 ALTER TABLE studio_directions ADD COLUMN IF NOT EXISTS publish_threads TEXT NOT NULL DEFAULT 'FALSE';
+ALTER TABLE studio_directions ADD COLUMN IF NOT EXISTS hashtags TEXT;
+-- хэштеги канала новостей выбрал владелец 27.11 (меняются в «Направлениях»; NULL — значит ещё не ставили)
+UPDATE studio_directions SET hashtags = '#БезСказок #новости #война #политика' WHERE id = 'news' AND hashtags IS NULL;
 CREATE TABLE IF NOT EXISTS studio_accounts (
   workspace_id TEXT NOT NULL DEFAULT 'main', credential_id TEXT NOT NULL, title TEXT NOT NULL DEFAULT '', url TEXT NOT NULL DEFAULT '',
   notes TEXT NOT NULL DEFAULT '', created_at TIMESTAMPTZ DEFAULT now(), updated_at TIMESTAMPTZ DEFAULT now(), updated_by TEXT,

@@ -134,6 +134,12 @@ def episode(eid: str) -> dict | None:
     out['actions'] = allowed_actions(r)
     out['video'] = _video(r.get('meta') or {}, r.get('preview_url'))
     out['social_todo'] = _social_todo(r, out['video'])
+    from . import pubtexts  # тексты публикации: страница выпуска
+    try:
+        out['pub'] = pubtexts.view(eid)
+    except Exception as e:  # тексты не должны ломать карточку выпуска
+        log.warning('тексты публикации %s: %s', eid, e)
+        out['pub'] = None
     return out
 
 
@@ -144,7 +150,7 @@ def _social_todo(r: dict, video: dict | None) -> list:
         return []
     from . import meta as meta_mod  # Facebook и Threads публикует Студия (meta.py)
     try:
-        t = meta_mod.targets(r['id'])
+        t = meta_mod.flag_targets(r['id'])
     except LookupError:
         return []
     done = {'facebook': m.get('fb_video_id'), 'threads': m.get('threads_post_id')}
@@ -186,6 +192,8 @@ def _social(meta: dict) -> dict:
         s = soc.get(k) or {}
         if meta.get(idk):
             out[k] = {'ok': True, 'url': meta.get(urlk) or s.get('url') or ''}
+            if k == 'threads' and len(meta.get('threads_chain') or [1]) < int(meta.get('threads_total') or 0):  # цепочка вышла не вся
+                out[k] = {'ok': False, 'url': out[k]['url'], 'error': s.get('error') or 'цепочка вышла не вся'}
         elif s:
             out[k] = {'ok': False, 'error': s.get('error') or ''}
     if meta.get('social_pending'):
