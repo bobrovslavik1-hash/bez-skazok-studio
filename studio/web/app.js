@@ -395,8 +395,9 @@
     const claims = d.claims || [];
     const side = isScript ? `
       <div class="card"><div class="card-h"><h2>Шортсы</h2><span class="faint">${(d.shorts || []).length}</span></div><div class="card-b flush">
-        ${(d.shorts || []).length ? `<ul class="rows">${d.shorts.map(s => `<li><span class="dot ${s.found ? 'ok' : 'warn'}"></span><div class="grow">
-          <div class="title">${s.n}. ${esc(s.title)}</div><div class="meta">${s.found ? 'отмечен в тексте красным ▶ … ■ — это место читай живее' : 'не нашёлся в тексте — монтаж найдёт его по записи'}</div></div></li>`).join('')}</ul>`
+        ${(d.shorts || []).length ? `<ul class="rows">${d.shorts.map(s => `<li><span class="dot ${s.found === true ? 'ok' : 'warn'}"></span><div class="grow">
+          <div class="title">${s.n}. ${esc(s.title)}</div><div class="meta">${s.found === true ? 'отмечен в тексте красным ▶ … ■ — это место читай живее'
+            : s.found ? 'начало отмечено ▶, конец примерный — в сценарии он записан неточно' : 'не нашёлся в тексте'}</div></div></li>`).join('')}</ul>`
           : `<div class="empty">Шортсов нет</div>`}</div></div>
       <div class="card"><div class="card-h"><h2>Факты</h2><span class="faint">${claims.length}</span></div><div class="card-b flush">
         ${claims.length ? `<ul class="rows pp-claims">${claims.map(c => { const [tone, label] = CLAIM[c.status] || CLAIM.single; return `<li><div class="grow">

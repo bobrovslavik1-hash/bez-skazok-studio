@@ -92,10 +92,11 @@ def script_blocks(script: dict) -> tuple:
         return [], []
     kinds = {str(i.get('marker')): i.get('kind') for i in (script.get('inserts') or []) if isinstance(i, dict)}
     # сначала все слова подряд — чтобы найти шортсы по якорям, даже если фрагмент переходит в следующий абзац
-    flat = []  # нормализованные слова всего сценария, в порядке чтения
+    flat, seg_end = [], []  # нормализованные слова всего сценария, в порядке чтения; где кончается каждый сюжет
     for seg in segs:
         for line in str((seg or {}).get('text') or '').split('\n'):
             flat += [_norm(w) for w in _words(_MARK.sub(' ', line)) if _norm(w)]
+        seg_end.append(len(flat) - 1)
     starts, ends, shorts = {}, {}, []
     for n, sh in enumerate(script.get('shorts') or [], 1):
         if not isinstance(sh, dict):
@@ -107,6 +108,10 @@ def script_blocks(script: dict) -> tuple:
         if found:
             starts[a] = n
             ends[b + len(e_words) - 1] = n
+        elif a >= 0:  # начало есть, а конец модель написала не дословно — отмечаем примерно: до конца сюжета, не больше 110 слов
+            starts[a] = n
+            ends[min(a + 110, next((e for e in seg_end if e >= a), len(flat) - 1))] = n
+            found = 'start'
         shorts.append({'n': n, 'title': str(sh.get('title') or f'Шортс {n}')[:120], 'found': found})
     titles = {s['n']: s['title'] for s in shorts}
     blocks, wi = [], 0
@@ -139,19 +144,39 @@ def script_blocks(script: dict) -> tuple:
     return blocks, shorts
 
 
+def outlet(url: str, name: str = '') -> str:
+    """Издание по ссылке — для подсчёта независимых источников. Где на одной площадке пишет много редакций
+    (Telegram, Bluesky, YouTube, Google Новости), считаем по каналу, а не по домену. То же правило — в «Разборе сценария» (n8n, К3)."""
+    m = re.match(r'^https?://(?:www\.|m\.)?([^/?#:]+)(?::\d+)?([^?#]*)', str(url or ''), re.I)
+    if not m:
+        return ''
+    h, p = m.group(1).lower(), [x for x in m.group(2).split('/') if x]
+    if h in ('t.me', 'telegram.me'):
+        return 't.me/' + ((p[1] if len(p) > 1 and p[0] == 's' else p[0]) if p else '').lower()
+    if h == 'bsky.app':
+        return 'bsky.app/' + (p[1].lower() if len(p) > 1 else '')
+    if h.endswith('youtube.com') or h in ('youtu.be', 'news.google.com'):
+        return h + '/' + str(name or '/'.join(p)).lower()
+    return h
+
+
 def _claims(script: dict) -> list:
     src = {str(s.get('sid') or s.get('id')): s for s in (script.get('source_list') or []) if isinstance(s, dict)}
     out = []
     for c in script.get('claims') or []:
         if not isinstance(c, dict):
             continue
-        links = []
+        links, outlets = [], set()
         for sid in c.get('sources') or []:
             s = src.get(str(sid))
             if s and s.get('url'):
                 links.append({'name': s.get('source_name') or '', 'title': (s.get('title') or '')[:140], 'url': s['url']})
-        out.append({'text': str(c.get('text') or '')[:400], 'status': c.get('status') or 'single', 'note': str(c.get('note') or '')[:200],
-                    'sources': links[:4]})
+                outlets.add(outlet(s['url'], s.get('source_name') or ''))
+        status, note = c.get('status') or 'single', str(c.get('note') or '')[:200]
+        # до 27.11 «Разбор сценария» не мог разобрать адреса и понижал всё до «один источник» — восстанавливаем по ссылкам
+        if c.get('downgraded') and status == 'single' and len(outlets - {''}) >= 2:
+            status, note = 'confirmed', ''
+        out.append({'text': str(c.get('text') or '')[:400], 'status': status, 'note': note, 'sources': links[:4]})
     return out
 
 
