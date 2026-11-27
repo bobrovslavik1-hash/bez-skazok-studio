@@ -369,9 +369,11 @@ def _copy_from_script(eid: str, meta: dict, script_id: str) -> bool:
     if not isinstance(sp, dict):
         return False
     made = [x['name'] for x in (meta.get('shorts') or []) if isinstance(x, dict) and x.get('name')]
-    old = list((sp.get('shorts') or {}).values())
+    by_name = sp.get('shorts') or {}
+    old = list(by_name.values())
     pub = dict(sp)
-    pub['shorts'] = {n: old[i] for i, n in enumerate(made) if i < len(old)}
+    # монтаж называет шортсы так же (short_1, short_2…) — сначала по имени, иначе по порядку
+    pub['shorts'] = {n: by_name.get(n) or old[i] for i, n in enumerate(made) if n in by_name or i < len(old)}
     pub['copied_from'] = script_id
     _store(eid, pub)
     return True

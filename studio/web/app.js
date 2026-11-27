@@ -369,6 +369,7 @@
     let thFoot;
     if (th.id && th.posted >= posts.length) thFoot = `<span class="dot ok"></span>${th.url ? `<a href="${esc(th.url)}" target="_blank" rel="noopener">Опубликовано в Threads</a>` : 'Опубликовано в Threads'}`;
     else if (soc.pending) thFoot = `<span class="faint">Публикуется…</span>`;
+    else if (!p.video_ready) thFoot = `<span class="faint">Кнопка появится после монтажа</span>`;
     else thFoot = `<button class="btn primary" data-pubto="threads">${th.posted ? 'Продолжить цепочку' : thErr ? 'Повторить' : 'Опубликовать в Threads'}</button>`
       + (thErr ? `<span class="pub-err">${esc(thErr)}</span>`
         : `<span class="faint">${th.posted ? `вышло ${th.posted} из ${posts.length} — продолжу с места`

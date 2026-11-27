@@ -213,6 +213,9 @@ async def episode_publish_to(eid: str, platform: str, request: Request, user=Dep
     if platform == 'youtube':
         r = await run_in_threadpool(_src_errors, services.episode_action, eid, 'publish', user['login'])
     elif platform in meta.KINDS:
+        v = await run_in_threadpool(_pub_errors, pubtexts.view, eid, user['workspace_id'])
+        if not v['video_ready']:
+            raise HTTPException(400, 'Сначала нужен готовый выпуск — кнопка заработает после монтажа')
         r = await run_in_threadpool(_meta_errors, meta.request_publish, eid, user['workspace_id'], [platform])
     else:
         raise HTTPException(404, 'Неизвестная площадка')
