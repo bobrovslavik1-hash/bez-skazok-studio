@@ -29,11 +29,12 @@ TABLES = [
     ('studio_balance', 'TRUE', 'id'),
     ('studio_costs', 'TRUE', 'at, execution_id, node, run_index'),
     ('studio_audit', 'TRUE', 'id'),
+    ('studio_texts', 'TRUE', 'id'),  # свои тексты для суфлёра
     ('k_episodes', 'TRUE', 'created_at, id'),
     ('k_inserts', 'TRUE', 'episode_id, marker'),
     ('k_files', 'TRUE', 'seen_at, drive_file_id'),
 ]
-SERIAL = ('studio_sources', 'studio_balance', 'studio_audit')  # после вставки с готовыми id — сдвинуть счётчики
+SERIAL = ('studio_sources', 'studio_balance', 'studio_audit', 'studio_texts')  # после вставки с готовыми id — сдвинуть счётчики
 
 
 def export_sql() -> str:

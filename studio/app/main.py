@@ -12,7 +12,7 @@ from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from starlette.concurrency import run_in_threadpool
 
-from . import apify, auth, catalog, config, content, costs, db, feeds, logs, n8n, services, sources, vault
+from . import apify, auth, catalog, config, content, costs, db, feeds, logs, n8n, prompter, services, sources, vault
 from .mcp_server import mcp
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s %(name)s %(levelname)s %(message)s')
@@ -161,6 +161,49 @@ def episode(eid: str, user=Depends(auth.current_user)):
     if not ep:
         raise HTTPException(404, 'Нет такого выпуска')
     return ep
+
+
+# ---------- суфлёр ----------
+@app.get('/api/prompter')
+def prompter_list(user=Depends(auth.current_user)):
+    return prompter.listing(user['workspace_id'])
+
+
+@app.get('/api/prompter/script/{eid}')
+def prompter_script(eid: str, user=Depends(auth.current_user)):
+    s = prompter.script(eid)
+    if not s:
+        raise HTTPException(404, 'Нет такого сценария')
+    return s
+
+
+@app.get('/api/prompter/texts/{tid}')
+def prompter_text(tid: int, user=Depends(auth.current_user)):
+    t = prompter.text(tid, user['workspace_id'])
+    if not t:
+        raise HTTPException(404, 'Нет такого текста')
+    return t
+
+
+@app.post('/api/prompter/texts')
+async def prompter_text_add(request: Request, user=Depends(auth.current_user)):
+    auth.require_write(request)
+    b = await _body(request)
+    return _src_errors(prompter.save_text, user['login'], b.get('title'), b.get('body'), None, user['workspace_id'])
+
+
+@app.put('/api/prompter/texts/{tid}')
+async def prompter_text_save(tid: int, request: Request, user=Depends(auth.current_user)):
+    auth.require_write(request)
+    b = await _body(request)
+    return _src_errors(prompter.save_text, user['login'], b.get('title'), b.get('body'), tid, user['workspace_id'])
+
+
+@app.delete('/api/prompter/texts/{tid}')
+async def prompter_text_delete(tid: int, request: Request, user=Depends(auth.current_user)):
+    auth.require_write(request)
+    _src_errors(prompter.delete_text, user['login'], tid, user['workspace_id'])
+    return {'ok': True}
 
 
 @app.get('/api/runs')

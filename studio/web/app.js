@@ -35,6 +35,7 @@
   const I = {
     play: '<svg viewBox="0 0 16 16" fill="#fff"><path d="M3 1.8v12.4c0 .6.7 1 1.2.7l10-6.2c.5-.3.5-1.1 0-1.4l-10-6.2C3.7.8 3 1.2 3 1.8z"/></svg>',
     home: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7.5" height="9" rx="1.6"/><rect x="13.5" y="3" width="7.5" height="5.5" rx="1.6"/><rect x="13.5" y="11.5" width="7.5" height="9.5" rx="1.6"/><rect x="3" y="15" width="7.5" height="6" rx="1.6"/></svg>',
+    prompter: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3.5" width="18" height="17" rx="2.5"/><path d="M7 8.5h10M7 12h10M7 15.5h6"/><path d="M3 12h1.6" stroke-width="2.4"/></svg>',
     film: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="2.5"/><path d="M7.5 4v16M16.5 4v16M3 9h4.5M3 15h4.5M16.5 9H21M16.5 15H21"/></svg>',
     log: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6h3M4 12h3M4 18h3M10 6h10M10 12h10M10 18h7"/></svg>',
     coin: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="8.5"/><path d="M14.8 9.2c-.5-.9-1.5-1.4-2.8-1.4-1.7 0-2.8.8-2.8 2.1 0 2.9 5.8 1.4 5.8 4.3 0 1.3-1.2 2.1-3 2.1-1.4 0-2.5-.6-3-1.6M12 6.2v1.6M12 16.3v1.5"/></svg>',
@@ -52,7 +53,7 @@
   };
 
   const NAV = [
-    ['#/', 'Обзор', I.home], ['#/episodes', 'Выпуски', I.film], ['#/logs', 'Журнал', I.log],
+    ['#/', 'Обзор', I.home], ['#/episodes', 'Выпуски', I.film], ['#/prompter', 'Суфлёр', I.prompter], ['#/logs', 'Журнал', I.log],
     ['#/costs', 'Расходы', I.coin], ['#/sources', 'Источники', I.rss], ['#/settings', 'Настройки', I.gear],
   ];
   const EP_TONE = {
@@ -141,7 +142,7 @@
 
   function markNav() {
     const h = '#' + (location.hash.replace(/^#/, '').split('?')[0] || '/');
-    document.querySelectorAll('[data-nav]').forEach(a => a.classList.toggle('on', a.dataset.nav === h));
+    document.querySelectorAll('[data-nav]').forEach(a => a.classList.toggle('on', a.dataset.nav === h || (a.dataset.nav !== '#/' && h.startsWith(a.dataset.nav + '/'))));
     document.querySelectorAll('[data-errcount]').forEach(el => { el.textContent = state.errors24; el.classList.toggle('hidden', !state.errors24); });
   }
 
@@ -254,6 +255,7 @@
       <div class="foot">
         ${e.preview_url ? `<a class="btn small primary" href="${esc(e.preview_url)}" target="_blank" rel="noopener">Смотреть</a>` : ''}
         ${e.youtube_url ? `<a class="btn small" href="${esc(e.youtube_url)}" target="_blank" rel="noopener">YouTube</a>` : ''}
+        ${e.kind === 'script' ? `<a class="btn small" href="#/prompter/view?s=${encodeURIComponent(e.id)}">Суфлёр</a>` : ''}
         <button class="btn small" data-ep="${esc(e.id)}">Подробнее</button></div></div>`).join('');
     view.lastElementChild.outerHTML = list.length ? `<div class="grid eps">${cards}</div>`
       : `<div class="card"><div class="empty"><b>Пусто</b>Здесь появятся сценарии и выпуски</div></div>`;
@@ -271,6 +273,7 @@
       <div class="actions" style="margin-bottom:6px">
         ${e.preview_url ? `<a class="btn primary" href="${esc(e.preview_url)}" target="_blank" rel="noopener">Смотреть превью</a>` : ''}
         ${e.youtube_url ? `<a class="btn" href="${esc(e.youtube_url)}" target="_blank" rel="noopener">YouTube</a>` : ''}
+        ${e.kind === 'script' ? `<a class="btn" href="#/prompter/view?s=${encodeURIComponent(e.id)}">Открыть в суфлёре</a>` : ''}
       </div>
       <div class="section-t">Главное</div>
       <dl class="kv"><dt>Создан</dt><dd>${dt(e.created_at)}</dd><dt>Обновлён</dt><dd>${dt(e.updated_at)}</dd>
@@ -288,6 +291,487 @@
           <td class="r num">${(c.input_tokens || 0).toLocaleString('ru-RU')} / ${(c.output_tokens || 0).toLocaleString('ru-RU')}</td><td class="r num">${money(c.usd, 3)}</td></tr>`).join('')}</table></div>` : ''}
       <div class="section-t">Данные монтажа</div><pre class="json">${esc(JSON.stringify(e.meta || {}, null, 2))}</pre>`;
     d0.querySelector('.d-b').innerHTML = body;
+  }
+
+  // ---------- Суфлёр ----------
+  // Сценарии конвейера и свои тексты. Плеер получает текст блоками (см. studio/app/prompter.py):
+  // section — раздел, para — абзац; в абзаце строки — слова, объекты — метки (вставка, пауза, шортс).
+  const PKEY = 'studio.prompter.v1';
+  const P_DEFAULTS = { wpm: 130, size: 46, width: 820, mirror: false, secHold: true, hints: true };
+  const CLAIM = { confirmed: ['ok', 'подтверждено'], single: ['warn', 'один источник'], unconfirmed: ['err', 'не подтверждено'] };
+  const pNorm = w => String(w).toLowerCase().replace(/ё/g, 'е').replace(/[^0-9a-zа-яіїєґ]+/g, '');
+  const mins = (words, wpm) => { const m = words / Math.max(40, wpm); return m < 1 ? '<1 мин' : '~' + Math.round(m) + ' мин'; };
+  const clock = sec => { sec = Math.max(0, Math.round(sec)); return Math.floor(sec / 60) + ':' + String(sec % 60).padStart(2, '0'); };
+  function pPrefs() {
+    const phone = window.matchMedia('(max-width: 820px)').matches;
+    const d = Object.assign({}, P_DEFAULTS, phone ? { size: 32 } : {});
+    try { return Object.assign(d, JSON.parse(localStorage.getItem(PKEY) || '{}')); } catch (e) { return d; }
+  }
+  function pSave(p) { try { localStorage.setItem(PKEY, JSON.stringify(p)); } catch (e) { /* хранилище недоступно — настройки живут до закрытия */ } }
+  const textWords = body => String(body || '').replace(/^\s*#.*$/gm, ' ').replace(/\/{2,}/g, ' ').split(/\s+/).filter(w => pNorm(w)).length;
+
+  async function pagePrompter(view) {
+    const wpm = pPrefs().wpm;
+    view.innerHTML = head('Суфлёр', 'Текст бежит по экрану в твоём темпе: сценарии конвейера и любые свои тексты',
+      `<a class="btn primary" href="#/prompter/edit">${I.plus}Свой текст</a>`) + loading();
+    let d;
+    try { d = await api('/api/prompter'); } catch (e) { view.lastElementChild.outerHTML = failBox(e.message); return; }
+    const row = (href, title, meta, right) => `<li class="click" data-href="${esc(href)}"><div class="grow"><div class="title">${esc(title)}</div>
+      <div class="meta">${meta.map(m => `<span>${esc(m)}</span>`).join('')}</div></div>${right}</li>`;
+    const scripts = (d.scripts || []).map(s => row('#/prompter/view?s=' + encodeURIComponent(s.id), s.title,
+      [when(s.created_at), s.words.toLocaleString('ru-RU') + ' ' + plural(s.words, 'слово', 'слова', 'слов'), mins(s.words, wpm)],
+      `<div class="pp-row-act">${badge(s.status_label || s.status, EP_TONE[s.status] || '')}<a class="btn small primary" data-read="s:${esc(s.id)}">Читать</a></div>`)).join('');
+    const texts = (d.texts || []).map(t => row('#/prompter/view?t=' + t.id, t.title,
+      [when(t.updated_at), t.words.toLocaleString('ru-RU') + ' ' + plural(t.words, 'слово', 'слова', 'слов'), mins(t.words, wpm)],
+      `<div class="pp-row-act"><a class="btn small primary" data-read="t:${t.id}">Читать</a></div>`)).join('');
+    view.lastElementChild.outerHTML = `
+      <div class="grid two">
+        <div class="card"><div class="card-h"><h2>Сценарии конвейера</h2><span class="faint">новые сверху</span></div>
+          <div class="card-b flush">${scripts ? `<ul class="rows">${scripts}</ul>` : `<div class="empty"><b>Сценариев пока нет</b>Отправь боту /news или /topic — сценарий появится здесь</div>`}</div></div>
+        <div class="card"><div class="card-h"><h2>Свои тексты</h2><a href="#/prompter/edit">Добавить</a></div>
+          <div class="card-b flush">${texts ? `<ul class="rows">${texts}</ul>` : `<div class="empty"><b>Своих текстов нет</b>Вставь любой текст — суфлёр прокрутит его с той скоростью, с какой ты читаешь</div>`}</div></div>
+      </div>
+      <div class="note" style="margin-top:16px">В суфлёре: <b>пробел</b> или касание — пауза и пуск, <b>↑ ↓</b> — скорость, <b>← →</b> — предыдущий и следующий раздел, колёсико или палец — подвинуть текст. Скорость и размер шрифта запоминаются на этом устройстве.</div>`;
+    view.querySelectorAll('[data-href]').forEach(li => li.addEventListener('click', ev => {
+      if (ev.target.closest('a,button')) return;
+      location.hash = li.dataset.href;
+    }));
+    view.querySelectorAll('[data-read]').forEach(b => b.addEventListener('click', ev => { ev.preventDefault(); ev.stopPropagation(); readNow(b.dataset.read); }));
+  }
+
+  async function loadDoc(key) {
+    const [k, id] = String(key).split(/:(.*)/s);
+    return api(k === 's' ? '/api/prompter/script/' + encodeURIComponent(id) : '/api/prompter/texts/' + encodeURIComponent(id));
+  }
+  async function readNow(key) {
+    try { openPlayer(await loadDoc(key)); } catch (e) { toast(e.message, true); }
+  }
+
+  // текст блоками → HTML (и для просмотра на странице, и для плеера)
+  function blocksHtml(blocks, { counter, hints = true } = {}) {
+    let html = '', wi = 0, inShort = 0;
+    for (const b of blocks || []) {
+      if (b.type === 'section') {
+        html += `<div class="pp-sec" data-sec-at="${wi}">${esc(b.text)}</div>`;
+        continue;
+      }
+      html += '<p>';
+      for (const it of b.items || []) {
+        if (typeof it === 'string') {
+          html += `<span class="w${inShort ? ' sh' : ''}" data-i="${wi}">${esc(it)} </span>`;
+          if (counter) counter.push(it);
+          wi++;
+        } else if (it.ins) {
+          if (hints) html += `<span class="pp-ins" title="Здесь на экране появится вставка">${esc(INS_KIND[it.kind] || 'вставка')}</span> `;
+        } else if (it.pause) {
+          html += `<span class="pp-pz" title="Пауза">⏸</span> `;
+        } else if (it.short) {
+          inShort = it.short;
+          html += `<span class="pp-shs" title="${esc(it.title || '')}">▶ шортс ${it.short}</span> `;
+        } else if (it.short_end) {
+          inShort = 0;
+          html += `<span class="pp-she" title="Конец шортса">■</span> `;
+        }
+      }
+      html += '</p>';
+    }
+    return html;
+  }
+
+  async function pagePrompterView(view, params) {
+    const key = params.get('s') ? 's:' + params.get('s') : params.get('t') ? 't:' + params.get('t') : '';
+    view.innerHTML = head('Суфлёр', '') + loading();
+    if (!key) { location.hash = '#/prompter'; return; }
+    let d;
+    try { d = await loadDoc(key); } catch (e) { view.innerHTML = head('Суфлёр', '', `<a class="btn" href="#/prompter">Назад</a>`) + failBox(e.message); return; }
+    const wpm = pPrefs().wpm;
+    const isScript = d.kind === 'script';
+    const meta = [isScript ? 'сценарий' : 'свой текст', when(d.updated_at || d.created_at),
+      d.words.toLocaleString('ru-RU') + ' ' + plural(d.words, 'слово', 'слова', 'слов'), mins(d.words, wpm) + ' при ' + wpm + ' сл/мин'];
+    const actions = `<a class="btn" href="#/prompter">Назад</a>
+      ${isScript ? `<button class="btn" id="pcopy">${I.pencil}Копия для правки</button>`
+        : `<a class="btn" href="#/prompter/edit?t=${d.id}">${I.pencil}Править</a><button class="btn" id="pdel">${I.trash}Удалить</button>`}
+      <button class="btn primary" id="pread">${I.play.replace('fill="#fff"', 'fill="currentColor"')}Читать</button>`;
+    const claims = d.claims || [];
+    const side = isScript ? `
+      <div class="card"><div class="card-h"><h2>Шортсы</h2><span class="faint">${(d.shorts || []).length}</span></div><div class="card-b flush">
+        ${(d.shorts || []).length ? `<ul class="rows">${d.shorts.map(s => `<li><span class="dot ${s.found ? 'ok' : 'warn'}"></span><div class="grow">
+          <div class="title">${s.n}. ${esc(s.title)}</div><div class="meta">${s.found ? 'отмечен в тексте красным ▶ … ■ — это место читай живее' : 'не нашёлся в тексте — монтаж найдёт его по записи'}</div></div></li>`).join('')}</ul>`
+          : `<div class="empty">Шортсов нет</div>`}</div></div>
+      <div class="card"><div class="card-h"><h2>Факты</h2><span class="faint">${claims.length}</span></div><div class="card-b flush">
+        ${claims.length ? `<ul class="rows pp-claims">${claims.map(c => { const [tone, label] = CLAIM[c.status] || CLAIM.single; return `<li><div class="grow">
+          <div>${badge(label, tone)}</div><div class="pp-claim">${esc(c.text)}</div>
+          ${c.sources.length ? `<div class="meta">${c.sources.map(s => `<a href="${esc(s.url)}" target="_blank" rel="noopener" title="${esc(s.title)}">${esc(s.name || 'источник')}</a>`).join('')}</div>` : ''}
+          ${c.note ? `<div class="faint" style="font-size:12.5px">${esc(c.note)}</div>` : ''}</div></li>`; }).join('')}</ul>` : `<div class="empty">Фактов нет</div>`}</div></div>`
+      : `<div class="card"><div class="card-h"><h2>Как размечать свой текст</h2></div><div class="card-b pp-help">
+          <p><code># Заголовок</code> — новый раздел: по разделам можно прыгать стрелками ← →, перед разделом суфлёр делает паузу.</p>
+          <p><code>//</code> — пауза в этом месте (<code>///</code> — длинная).</p>
+          <p>Пустая строка — новый абзац.</p></div></div>`;
+    view.innerHTML = head(esc(d.title), meta.map(esc).join(' · '), actions) + `
+      <div class="pp-view">
+        <div class="card"><div class="card-h"><h2>Текст</h2>${isScript ? `<span class="faint">◆ вставка · ⏸ пауза · <span class="pp-shs">▶ шортс</span></span>` : ''}</div>
+          <div class="card-b"><div class="pp-preview">${blocksHtml(d.blocks)}</div></div></div>
+        <div class="grid">${side}</div>
+      </div>`;
+    $('#pread').addEventListener('click', () => openPlayer(d));
+    const copy = $('#pcopy');
+    if (copy) copy.addEventListener('click', () => {
+      try { sessionStorage.setItem('prompter.draft', JSON.stringify({ title: d.title + ' (копия)', body: d.plain || '' })); } catch (e) { /* без черновика откроется пустой редактор */ }
+      location.hash = '#/prompter/edit?draft=1';
+    });
+    const del = $('#pdel');
+    if (del) del.addEventListener('click', async () => {
+      if (!confirm('Удалить текст «' + d.title + '»?')) return;
+      try { await api('/api/prompter/texts/' + d.id, { method: 'DELETE' }); toast('Текст удалён'); location.hash = '#/prompter'; }
+      catch (e) { toast(e.message, true); }
+    });
+  }
+
+  async function pagePrompterEdit(view, params) {
+    const tid = params.get('t');
+    let d = { title: '', body: '' };
+    view.innerHTML = head(tid ? 'Правка текста' : 'Свой текст', '') + loading();
+    if (tid) {
+      try { d = await api('/api/prompter/texts/' + encodeURIComponent(tid)); }
+      catch (e) { view.innerHTML = head('Правка текста', '', `<a class="btn" href="#/prompter">Назад</a>`) + failBox(e.message); return; }
+    } else if (params.get('draft')) {
+      try { d = Object.assign(d, JSON.parse(sessionStorage.getItem('prompter.draft') || '{}')); } catch (e) { /* нет черновика */ }
+    }
+    const wpm = pPrefs().wpm;
+    view.innerHTML = head(tid ? 'Правка текста' : 'Свой текст', 'Вставь или напиши текст — суфлёр прокрутит его в твоём темпе',
+      `<a class="btn" href="${tid ? '#/prompter/view?t=' + esc(tid) : '#/prompter'}">Отмена</a><button class="btn" id="psave">Сохранить</button><button class="btn primary" id="pgo">${I.play.replace('fill="#fff"', 'fill="currentColor"')}Сохранить и читать</button>`) + `
+      <div class="card"><div class="card-b pp-edit">
+        <input class="input" id="ptitle" maxlength="200" placeholder="Название (можно не писать — возьму первую строку)" value="${esc(d.title || '')}">
+        <textarea class="input" id="pbody" placeholder="Текст для суфлёра…&#10;&#10;# Заголовок — новый раздел&#10;// — пауза&#10;пустая строка — новый абзац">${esc(d.body || '')}</textarea>
+        <div class="pp-edit-foot"><span id="pcount" class="muted"></span><span class="faint"><code># Заголовок</code> — раздел · <code>//</code> — пауза · пустая строка — абзац</span></div>
+      </div></div>`;
+    const body = $('#pbody'), count = $('#pcount');
+    const upd = () => { const n = textWords(body.value); count.textContent = `${n.toLocaleString('ru-RU')} ${plural(n, 'слово', 'слова', 'слов')} · ${mins(n, wpm)} при ${wpm} сл/мин`; };
+    body.addEventListener('input', upd); upd();
+    if (!tid && !d.body) body.focus();
+    async function save(andRead) {
+      const payload = { title: $('#ptitle').value, body: body.value };
+      $('#psave').disabled = $('#pgo').disabled = true;
+      try {
+        const r = tid ? await api('/api/prompter/texts/' + encodeURIComponent(tid), { method: 'PUT', body: payload })
+          : await api('/api/prompter/texts', { body: payload });
+        try { sessionStorage.removeItem('prompter.draft'); } catch (e) { /* нечего чистить */ }
+        toast('Сохранено');
+        location.hash = '#/prompter/view?t=' + r.id;
+        if (andRead) openPlayer(r);
+      } catch (e) { toast(e.message, true); $('#psave').disabled = $('#pgo').disabled = false; }
+    }
+    $('#psave').addEventListener('click', () => save(false));
+    $('#pgo').addEventListener('click', () => save(true));
+  }
+
+  // ---------- плеер суфлёра ----------
+  function openPlayer(doc) {
+    document.querySelectorAll('.pp').forEach(e => e.remove());
+    const S = pPrefs();
+    const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+    const el = document.createElement('div');
+    el.className = 'pp';
+    el.innerHTML = `
+      <div class="pp-stage"><div class="pp-track"></div></div>
+      <div class="pp-read" aria-hidden="true"><i></i><i></i></div>
+      <div class="pp-fade pp-fade-top"></div><div class="pp-fade pp-fade-bot"></div>
+      <div class="pp-hud"><div class="pp-prog"><i></i></div><div class="pp-hud-row"><span class="pp-secname"></span><span class="pp-left"></span></div></div>
+      <div class="pp-count hidden"></div>
+      <div class="pp-done hidden"><b>Конец текста</b><span>Нажми «В начало», чтобы прочитать ещё раз</span></div>
+      <div class="pp-panel hidden"></div>
+      <div class="pp-bar">
+        <button data-a="close" title="Закрыть (Esc)">✕</button>
+        <button data-a="start" class="pp-opt" title="В начало">⏮</button>
+        <button data-a="prev" title="Предыдущий раздел (←)">◀</button>
+        <button data-a="play" class="pp-play" title="Пуск / пауза (пробел)">▶</button>
+        <button data-a="next" title="Следующий раздел (→)">▶▏</button>
+        <span class="pp-speed" title="Слов в минуту"><button data-a="slower" title="Медленнее (↓)">−</button><b><span data-v="wpm"></span><small>сл/мин</small></b><button data-a="faster" title="Быстрее (↑)">+</button></span>
+        ${SR ? `<button data-a="voice" class="pp-opt" title="Следить за голосом (проба)">🎙</button>` : ''}
+        <button data-a="panel" title="Настройки">⚙</button>
+      </div>`;
+    document.body.appendChild(el);
+    document.body.classList.add('pp-open');
+    const stage = $('.pp-stage', el), track = $('.pp-track', el), bar = $('.pp-bar', el), panel = $('.pp-panel', el);
+    const hudProg = $('.pp-prog i', el), hudLeft = $('.pp-left', el), hudSec = $('.pp-secname', el), doneBox = $('.pp-done', el);
+
+    // ---- разметка и измерения ----
+    const words = [];
+    let W = [], N = 0, lines = [], lineOf = [], holds = new Float32Array(1), holdLeft = new Float32Array(1), secs = [];
+    function build() {
+      words.length = 0;
+      track.innerHTML = blocksHtml(doc.blocks, { counter: words, hints: S.hints });
+      N = words.length;
+      W = words.map(pNorm);
+      // паузы: «//» — всегда, перед разделом — если включено
+      holds = new Float32Array(N + 1);
+      let wi = 0;
+      for (const b of doc.blocks || []) {
+        if (b.type === 'section') { if (S.secHold && wi > 0) holds[wi - 1] += 1.5; continue; }
+        for (const it of b.items || []) {
+          if (typeof it === 'string') wi++;
+          else if (it.pause && wi > 0) holds[wi - 1] += it.pause;
+        }
+      }
+      holdLeft = new Float32Array(N + 1);  // сумма пауз от слова i до конца — для «осталось»
+      for (let i = N - 1; i >= 0; i--) holdLeft[i] = holdLeft[i + 1] + holds[i];
+      secs = [...track.querySelectorAll('.pp-sec')].map(s => ({ at: +s.dataset.secAt, title: s.textContent }));
+      style();
+    }
+    function style() {
+      track.style.fontSize = S.size + 'px';
+      track.style.width = `min(${S.width}px, 94vw)`;
+      stage.classList.toggle('mirror', !!S.mirror);
+      $('[data-v="wpm"]', el).textContent = S.wpm;
+      measure();
+    }
+    let lineH = 60;
+    function measure() {
+      const spans = track.querySelectorAll('.w');
+      lines = []; lineOf = new Int32Array(N);
+      let lastTop = -1;
+      spans.forEach((s, i) => {
+        const top = s.offsetTop;
+        if (Math.abs(top - lastTop) > 2) { lines.push({ top, start: i, n: 0 }); lastTop = top; }
+        const L = lines.length - 1; lines[L].n++; lineOf[i] = L;
+      });
+      lineH = S.size * 1.45;
+      seen = -1;
+      paint(true);
+    }
+    // позиция (в пикселях дорожки) для «прочитано t слов»: плавно внутри строки
+    function yAt(t) {
+      if (!lines.length) return 0;
+      const i = Math.max(0, Math.min(N - 1, Math.floor(t)));
+      const L = lineOf[i], ln = lines[L];
+      const next = L + 1 < lines.length ? lines[L + 1].top : ln.top + lineH;
+      const f = Math.max(0, Math.min(1, (t - ln.start) / ln.n));
+      return ln.top + f * (next - ln.top);
+    }
+    function tAtY(y) {
+      if (!lines.length) return 0;
+      let lo = 0, hi = lines.length - 1;
+      while (lo < hi) { const mid = (lo + hi + 1) >> 1; if (lines[mid].top <= y) lo = mid; else hi = mid - 1; }
+      const ln = lines[lo], next = lo + 1 < lines.length ? lines[lo + 1].top : ln.top + lineH;
+      return Math.max(0, Math.min(N, ln.start + ln.n * Math.max(0, Math.min(1, (y - ln.top) / Math.max(1, next - ln.top)))));
+    }
+
+    // ---- состояние ----
+    let t = 0, target = 0, playing = false, hold = 0, last = 0, raf = 0, seen = -1, voiceOn = false, rec = null, hideT = 0, lock = null, closed = false;
+    const readY = () => stage.clientHeight * 0.36;
+    function paint(force) {
+      const y = yAt(t);
+      track.style.transform = `translate(-50%, ${Math.round((readY() - y - lineH * 0.55) * 10) / 10}px)`;
+      const idx = Math.floor(t);
+      if (idx !== seen || force) {
+        const spans = track.querySelectorAll('.w');
+        const from = Math.max(0, Math.min(seen, idx)), to = Math.min(N, Math.max(seen, idx) + 1);
+        for (let i = force ? 0 : from; i < (force ? N : to); i++) spans[i] && spans[i].classList.toggle('past', i < idx);
+        seen = idx;
+        const s = [...secs].reverse().find(x => x.at <= idx);
+        hudSec.textContent = s ? s.title : (doc.title || '');
+      }
+      hudProg.style.width = (N ? (t / N) * 100 : 0) + '%';
+      const left = (N - t) / S.wpm * 60 + (holdLeft[Math.min(N, Math.ceil(t))] || 0);
+      hudLeft.textContent = clock(Math.floor(t) < N ? left : 0) + ' осталось';
+    }
+    function frame(ts) {
+      if (closed) return;
+      const dt = last ? Math.min(0.1, (ts - last) / 1000) : 0;
+      last = ts;
+      if (voiceOn) {
+        if (Math.abs(target - t) > 0.01) t += (target - t) * Math.min(1, dt * 5);
+      } else if (playing) {
+        if (hold > 0) hold -= dt;
+        else {
+          const prev = Math.floor(t);
+          t += dt * S.wpm / 60;
+          for (let k = prev; k < Math.floor(t) && k < N; k++) if (holds[k] > 0) { hold = holds[k]; t = k + 1; break; }
+          if (t >= N) { t = N; setPlay(false); doneBox.classList.remove('hidden'); }
+        }
+      }
+      paint(false);
+      raf = requestAnimationFrame(frame);
+    }
+    function setPlay(on) {
+      if (on && voiceOn) voiceStop();
+      playing = on;
+      $('.pp-play', el).textContent = on ? '⏸' : '▶';
+      el.classList.toggle('playing', on);
+      if (on) { doneBox.classList.add('hidden'); hideSoon(); } else showBar();
+    }
+    let counting = 0;
+    function toggle() {
+      if (counting) return;
+      if (playing) { setPlay(false); return; }
+      if (t >= N) { t = 0; hold = 0; }
+      if (t < 0.5) {  // старт с начала — отсчёт, чтобы успеть сесть и посмотреть в камеру
+        const c = $('.pp-count', el); let n = 3;
+        c.classList.remove('hidden'); c.textContent = n;
+        counting = setInterval(() => {
+          n--;
+          if (n > 0) { c.textContent = n; return; }
+          clearInterval(counting); counting = 0; c.classList.add('hidden');
+          if (!closed) setPlay(true);
+        }, 800);
+        return;
+      }
+      setPlay(true);
+    }
+    const jump = dir => {
+      const idx = Math.floor(t) + (dir < 0 ? -2 : 0);
+      const s = dir > 0 ? secs.find(x => x.at > idx) : [...secs].reverse().find(x => x.at <= idx);
+      t = target = s ? s.at : (dir < 0 ? 0 : t); hold = 0;
+      doneBox.classList.add('hidden');
+    };
+    const speed = d => { S.wpm = Math.max(60, Math.min(260, S.wpm + d)); pSave(S); $('[data-v="wpm"]', el).textContent = S.wpm; };
+    const restart = () => { t = target = 0; hold = 0; setPlay(false); doneBox.classList.add('hidden'); };
+    function showBar() { el.classList.remove('calm'); clearTimeout(hideT); if (playing) hideSoon(); }
+    function hideSoon() { clearTimeout(hideT); hideT = setTimeout(() => { if (playing && panel.classList.contains('hidden')) el.classList.add('calm'); }, 2500); }
+
+    // ---- голос: суфлёр сам двигается за тем, что ты читаешь (Chrome, нужен микрофон) ----
+    const close5 = (a, b) => a === b || (a.length > 3 && b.length > 3 && a.slice(0, 4) === b.slice(0, 4));
+    function follow(text) {
+      const heard = String(text).split(/\s+/).map(pNorm).filter(Boolean).slice(-6);
+      if (heard.length < 2) return;
+      const base = Math.floor(target);
+      let best = -1, score = 0;
+      for (let p = Math.max(0, base - 2); p < Math.min(N, base + 45); p++) {
+        let s = 0, m = 0;
+        for (let k = 0; k < heard.length; k++) {
+          const w = W[p - (heard.length - 1 - k)];
+          if (w && close5(w, heard[k])) { s += 1 + k * 0.25; m++; }
+        }
+        if (m >= 2 && s > score) { score = s; best = p; }  // одно частое слово («что», «это») — не повод прыгать
+      }
+      if (best >= 0) target = Math.max(target, best + 1);
+    }
+    function voiceStart() {
+      if (!SR) return;
+      try {
+        rec = new SR();
+        rec.lang = 'ru-RU'; rec.continuous = true; rec.interimResults = true;
+        rec.onresult = ev => { let s = ''; for (let i = ev.resultIndex; i < ev.results.length; i++) s += ' ' + ev.results[i][0].transcript; follow(s); };
+        rec.onerror = ev => { if (['not-allowed', 'service-not-allowed', 'audio-capture'].includes(ev.error)) { voiceStop(); toast('Нет доступа к микрофону — разреши его браузеру', true); } };
+        rec.onend = () => { if (voiceOn && !closed) { try { rec.start(); } catch (e) { /* уже слушает */ } } };
+        setPlay(false);
+        voiceOn = true; target = t;
+        rec.start();
+        $('[data-a="voice"]', el).classList.add('on');
+        toast('Слушаю: читай вслух — текст пойдёт за голосом');
+      } catch (e) { voiceOn = false; toast('Голос не включился: ' + e.message, true); }
+    }
+    function voiceStop() {
+      voiceOn = false;
+      if (rec) { try { rec.onend = null; rec.stop(); } catch (e) { /* уже остановлен */ } rec = null; }
+      const b = $('[data-a="voice"]', el); if (b) b.classList.remove('on');
+    }
+
+    // ---- настройки ----
+    function drawPanel() {
+      const on = v => v ? ' on' : '';
+      panel.innerHTML = `
+        <div class="pp-p-row"><span>Читать с начала</span><button class="pp-btn" data-p="restart">⏮ В начало</button></div>
+        ${SR ? `<div class="pp-p-row"><span>Следить за голосом <small class="pp-dim">проба: текст идёт за тем, что ты читаешь вслух</small></span><button class="pp-sw${on(voiceOn)}" data-p="voice"></button></div>` : ''}
+        <div class="pp-p-row"><span>Размер текста</span><span class="pp-step"><button data-p="size:-4">A−</button><b>${S.size}</b><button data-p="size:4">A+</button></span></div>
+        <div class="pp-p-row"><span>Ширина строки</span><span class="pp-step"><button data-p="width:-80">−</button><b>${S.width}</b><button data-p="width:80">+</button></span></div>
+        <div class="pp-p-row"><span>Зеркало (для стекла суфлёра)</span><button class="pp-sw${on(S.mirror)}" data-p="mirror"></button></div>
+        <div class="pp-p-row"><span>Пауза перед разделом</span><button class="pp-sw${on(S.secHold)}" data-p="secHold"></button></div>
+        <div class="pp-p-row"><span>Показывать вставки</span><button class="pp-sw${on(S.hints)}" data-p="hints"></button></div>
+        ${document.fullscreenEnabled ? `<div class="pp-p-row"><span>Во весь экран</span><button class="pp-sw${on(!!document.fullscreenElement)}" data-p="fs"></button></div>` : ''}
+        ${secs.length ? `<div class="pp-p-t">Разделы</div><div class="pp-secs">${secs.map((s, i) => `<button data-sec="${i}">${esc(s.title)}</button>`).join('')}</div>` : ''}`;
+    }
+    panel.addEventListener('click', ev => {
+      ev.stopPropagation();
+      const b = ev.target.closest('button'); if (!b) return;
+      if (b.dataset.sec != null) { t = target = secs[+b.dataset.sec].at; hold = 0; panel.classList.add('hidden'); return; }
+      const [k, v] = String(b.dataset.p || '').split(':');
+      if (k === 'restart') { restart(); panel.classList.add('hidden'); return; }
+      if (k === 'voice') { if (voiceOn) voiceStop(); else voiceStart(); drawPanel(); return; }
+      if (k === 'size') S.size = Math.max(20, Math.min(110, S.size + +v));
+      else if (k === 'width') S.width = Math.max(400, Math.min(1600, S.width + +v));
+      else if (k === 'fs') { if (document.fullscreenElement) document.exitFullscreen().catch(() => {}); else el.requestFullscreen().catch(() => {}); setTimeout(drawPanel, 300); return; }
+      else if (k in S) S[k] = !S[k];
+      pSave(S);
+      if (k === 'hints' || k === 'secHold') { const keep = t; build(); t = target = keep; } else style();
+      drawPanel();
+    });
+
+    // ---- управление ----
+    bar.addEventListener('click', ev => {
+      ev.stopPropagation();
+      const b = ev.target.closest('button'); if (!b) return;
+      const a = b.dataset.a;
+      showBar();
+      if (a === 'close') close();
+      else if (a === 'play') toggle();
+      else if (a === 'start') restart();
+      else if (a === 'prev') jump(-1);
+      else if (a === 'next') jump(1);
+      else if (a === 'slower') speed(-10);
+      else if (a === 'faster') speed(10);
+      else if (a === 'voice') { if (voiceOn) voiceStop(); else voiceStart(); }
+      else if (a === 'panel') { drawPanel(); panel.classList.toggle('hidden'); }
+    });
+    // касание по тексту — пауза/пуск; тянуть пальцем — двигать текст
+    let drag = null;
+    stage.addEventListener('pointerdown', ev => { drag = { y: ev.clientY, t0: t, moved: false }; stage.setPointerCapture(ev.pointerId); });
+    stage.addEventListener('pointermove', ev => {
+      if (!drag) return;
+      const dy = ev.clientY - drag.y;
+      if (Math.abs(dy) > 8) drag.moved = true;
+      if (drag.moved) { t = target = tAtY(yAt(drag.t0) - dy); hold = 0; showBar(); }
+    });
+    stage.addEventListener('pointerup', () => {
+      const d = drag; drag = null;
+      if (!d) return;
+      if (!panel.classList.contains('hidden')) { panel.classList.add('hidden'); return; }
+      if (!d.moved) toggle();
+    });
+    stage.addEventListener('wheel', ev => { ev.preventDefault(); t = target = tAtY(yAt(t) + ev.deltaY); hold = 0; showBar(); }, { passive: false });
+    el.addEventListener('pointermove', () => showBar());
+    function onKey(ev) {
+      if (ev.target.closest && ev.target.closest('input,textarea')) return;
+      const k = ev.key;
+      if (k === ' ' || k === 'Enter') { ev.preventDefault(); toggle(); }
+      else if (k === 'ArrowUp') { ev.preventDefault(); speed(10); }
+      else if (k === 'ArrowDown') { ev.preventDefault(); speed(-10); }
+      else if (k === 'ArrowLeft') { ev.preventDefault(); jump(-1); }
+      else if (k === 'ArrowRight') { ev.preventDefault(); jump(1); }
+      else if (k === '+' || k === '=') { S.size = Math.min(110, S.size + 4); pSave(S); style(); }
+      else if (k === '-' || k === '_') { S.size = Math.max(20, S.size - 4); pSave(S); style(); }
+      else if (k === 'm' || k === 'ь') { S.mirror = !S.mirror; pSave(S); style(); }
+      else if (k === 'Escape' && !document.fullscreenElement) close();
+      else return;
+      showBar();
+    }
+    document.addEventListener('keydown', onKey, true);
+    const onResize = () => measure();
+    window.addEventListener('resize', onResize);
+    // экран не гаснет, пока открыт суфлёр
+    async function wake() { try { if ('wakeLock' in navigator && !document.hidden) lock = await navigator.wakeLock.request('screen'); } catch (e) { lock = null; } }
+    const onVis = () => { if (!document.hidden && !closed) wake(); };
+    document.addEventListener('visibilitychange', onVis);
+    function close() {
+      closed = true;
+      cancelAnimationFrame(raf); clearInterval(counting); clearTimeout(hideT);
+      voiceStop();
+      if (lock) lock.release().catch(() => {});
+      document.removeEventListener('keydown', onKey, true);
+      document.removeEventListener('visibilitychange', onVis);
+      window.removeEventListener('resize', onResize);
+      if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
+      document.body.classList.remove('pp-open');
+      el.remove();
+    }
+    build();
+    wake();
+    if (!N) doneBox.classList.remove('hidden');
+    raf = requestAnimationFrame(frame);
+    // для проверки и будущих кнопок (Студия, расширения): управление суфлёром снаружи
+    el.prompter = { toggle, jump, speed, close, state: () => ({ t, N, playing, wpm: S.wpm, voice: voiceOn, target }),
+      seek: v => { t = target = Math.max(0, Math.min(N, v)); },
+      hear: text => { if (!voiceOn) { setPlay(false); voiceOn = true; target = t; } follow(text); } };  // то же, что делает микрофон: для проверки без голоса
   }
 
   // ---------- Журнал ----------
@@ -978,7 +1462,7 @@
   }
 
   // ---------- маршруты ----------
-  const PAGES = { '/': pageOverview, '/episodes': pageEpisodes, '/logs': pageLogs, '/costs': pageCosts, '/sources': pageSources, '/settings': pageSettings };
+  const PAGES = { '/': pageOverview, '/episodes': pageEpisodes, '/prompter': pagePrompter, '/prompter/view': pagePrompterView, '/prompter/edit': pagePrompterEdit, '/logs': pageLogs, '/costs': pageCosts, '/sources': pageSources, '/settings': pageSettings };
 
   function route() {
     if (!state.user) return;
@@ -987,7 +1471,10 @@
     const [path, qs] = (location.hash.replace(/^#/, '') || '/').split('?');
     const page = PAGES[path] || pageOverview;
     markNav();
-    const view = $('#view');
+    // новый контейнер на каждый переход: страница, которая ещё грузится, допишет в старый, а не поверх новой
+    const old = $('#view');
+    const view = old.cloneNode(false);
+    old.replaceWith(view);
     window.scrollTo(0, 0);
     page(view, new URLSearchParams(qs || ''));
     if (page === pageOverview) {
