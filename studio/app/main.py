@@ -720,12 +720,14 @@ _index_html: dict = {}
 
 @app.get('/')
 def index():
-    # к адресам app.js и style.css дописывается версия кода: после автообновления браузер сразу берёт новые файлы
+    # к адресам app.js, style.css и theme.js дописывается версия кода: после автообновления браузер сразу берёт новые файлы
     v = config.version().get('commit') or 'dev'
     html = _index_html.get(v)
     if html is None:
         raw = (config.WEB_DIR / 'index.html').read_text(encoding='utf-8')
-        html = raw.replace('/static/app.js"', f'/static/app.js?v={v}"').replace('/static/style.css"', f'/static/style.css?v={v}"')
+        html = raw
+        for f in ('app.js', 'style.css', 'theme.js'):
+            html = html.replace(f'/static/{f}"', f'/static/{f}?v={v}"')
         _index_html.clear()
         _index_html[v] = html
     return HTMLResponse(html, headers={'Cache-Control': 'no-cache'})

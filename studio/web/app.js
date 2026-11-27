@@ -92,7 +92,7 @@
   const RUN_TONE = { success: ['ok', 'Успешно'], error: ['err', 'Ошибка'], crashed: ['err', 'Сбой'], running: ['warn live', 'Идёт'],
     waiting: ['warn', 'Ждёт'], new: ['warn', 'В очереди'], canceled: ['', 'Отменён'] };
 
-  const state = { user: null, version: null, errors24: 0, timer: null };
+  const state = { user: null, version: null, errors24: 0, timer: null, now: { state: 'idle', ep: null }, tallyTimer: null, clockT: null, clockI: null };
 
   // ---------- связь с сервером ----------
   async function api(path, opts = {}) {
@@ -119,13 +119,129 @@
     setTimeout(() => t.remove(), isErr ? 5000 : 2600);
   }
 
+  // ---------- студия: табло «ЭФИР», часы, тема ----------
+  // какое состояние у конвейера сейчас — по самому важному выпуску: публикуется → монтаж → ждёт решения → ждёт записи
+  const NOW_RULES = [['live', ['publish_requested', 'publishing']], ['busy', ['recording', 'rendering', 'redo']],
+    ['ready', ['preview_ready', 'partial']], ['cue', ['inserts_ready', 'script_ready']]];
+  const TALLY = {
+    live: { plate: 'В ЭФИРЕ', label: 'Публикуется' }, busy: { plate: 'МОНТАЖ', label: 'Идёт монтаж' },
+    ready: { plate: 'ПРОВЕРКА', label: 'Готов, ждёт решения' }, cue: { plate: 'ЗАПИСЬ', label: 'Ждёт записи' },
+    done: { plate: 'ЭФИР', label: 'Опубликован' }, idle: { plate: 'ЭФИР', label: 'Тихо' },
+  };
+  function pickNow(list) {
+    const eps = (list || []).filter(e => !['superseded', 'cancelled'].includes(e.status));
+    for (const [st, codes] of NOW_RULES) {
+      const e = eps.find(x => codes.includes(x.status));
+      if (e) return { state: st, ep: e };
+    }
+    const pub = eps.find(x => x.status === 'published');
+    return pub ? { state: 'done', ep: pub } : { state: 'idle', ep: null };
+  }
+  const lampState = st => (st === 'done' ? 'idle' : st);
+  function tallyInner(now) {
+    const t = TALLY[now.state] || TALLY.idle;
+    return `<span class="tally-plate">${t.plate}</span><span class="tally-txt"><b>${esc(t.label)}</b>
+      <small>${esc(now.ep ? now.ep.title || now.ep.id : 'новых выпусков нет')}</small></span>`;
+  }
+  async function refreshTally(list) {
+    let eps = list;
+    if (!eps) {
+      try { eps = (await api('/api/episodes?limit=12', { noAuthRedirect: true })).episodes; } catch (e) { return; }
+    }
+    state.now = pickNow(eps);
+    const b = $('#tally');
+    if (b) { b.dataset.state = lampState(state.now.state); b.innerHTML = tallyInner(state.now); }
+    const m = $('#mlamp');
+    if (m) m.dataset.state = lampState(state.now.state);
+  }
+  const openNow = () => { if (state.now.ep) openEpisode(state.now.ep.id); else location.hash = '#/episodes'; };
+
+  // часы: 60 огней секунд по кругу и цифры как на табло; «Хронометр» — секундомер для записи (помнит себя после обновления страницы)
+  const pad2 = n => String(n).padStart(2, '0');
+  const sclk = { mode: 'time', start: 0, acc: 0, run: false };
+  try { Object.assign(sclk, JSON.parse(localStorage.getItem('studio-chrono') || '{}')); } catch (e) { /* без памяти — с нуля */ }
+  const saveClock = () => { try { localStorage.setItem('studio-chrono', JSON.stringify(sclk)); } catch (e) { /* не запомним */ } };
+  function clockSVG() {
+    const pt = (i, n, r) => { const a = i / n * 2 * Math.PI - Math.PI / 2; return `cx="${(100 + r * Math.cos(a)).toFixed(2)}" cy="${(100 + r * Math.sin(a)).toFixed(2)}"`; };
+    let dots = '', hours = '';
+    for (let i = 0; i < 60; i++) dots += `<circle ${pt(i, 60, 92)} r="${i % 5 ? 2.3 : 3.2}"/>`;
+    for (let i = 0; i < 12; i++) hours += `<circle class="h" ${pt(i, 12, 79)} r="2.4"/>`;
+    return `<svg viewBox="0 0 200 200" aria-hidden="true"><g class="ring">${dots}</g><g>${hours}</g></svg>`;
+  }
+  const elapsed = ms => { const t = Math.max(0, Math.floor(ms / 1000)), h = Math.floor(t / 3600);
+    return (h ? h + ':' : '') + pad2(Math.floor(t / 60) % 60) + ':' + pad2(t % 60); };
+  const ghost = txt => txt.replace(/\d/g, '8');
+  let litUpTo = -1;
+  function tick() {
+    const now = new Date();
+    const chrono = sclk.mode === 'chrono';
+    const ms = sclk.acc + (sclk.run ? Date.now() - sclk.start : 0);
+    const sec = chrono ? Math.floor(ms / 1000) % 60 : now.getSeconds();
+    const box = $('#sclock');
+    if (box) {
+      if (box.dataset.mode !== sclk.mode) box.dataset.mode = sclk.mode;
+      const dots = box.querySelectorAll('.ring circle');
+      if (sec < litUpTo || litUpTo < 0) { dots.forEach(c => c.classList.remove('on')); litUpTo = -1; }
+      for (let i = litUpTo + 1; i <= sec && i < dots.length; i++) dots[i].classList.add('on');
+      litUpTo = sec;
+      const main = chrono ? elapsed(ms) : pad2(now.getHours()) + ':' + pad2(now.getMinutes());
+      const hm = $('#shm'), ss = $('#ss');
+      if (hm.textContent !== main) { hm.textContent = main; hm.dataset.ghost = ghost(main); hm.style.fontSize = main.length > 5 ? '23px' : ''; }
+      ss.textContent = chrono ? '' : pad2(sec);
+      ss.classList.toggle('hidden', chrono);
+      $('#sdate').textContent = chrono ? (sclk.run ? 'хронометр идёт — нажми на часы, чтобы остановить' : ms ? 'хронометр на паузе' : 'нажми на часы, чтобы пустить')
+        : now.toLocaleDateString('ru-RU', { weekday: 'long', day: 'numeric', month: 'long' });
+      box.querySelectorAll('[data-cm]').forEach(b => b.classList.toggle('on', b.dataset.cm === sclk.mode));
+      const go = box.querySelector('[data-cc="go"]');
+      if (go) go.textContent = sclk.run ? 'Стоп' : ms ? 'Дальше' : 'Старт';
+    }
+    const mh = $('#mhm');
+    if (mh) { const t = pad2(now.getHours()) + ':' + pad2(now.getMinutes()) + ':' + pad2(now.getSeconds()); mh.textContent = t; }
+    document.querySelectorAll('[data-since]').forEach(el => {
+      const t = elapsed(Date.now() - Date.parse(el.dataset.since));
+      el.textContent = t; el.dataset.ghost = ghost(t);
+    });
+  }
+  function startClock() {
+    clearTimeout(state.clockT); clearInterval(state.clockI);
+    litUpTo = -1; tick();
+    state.clockT = setTimeout(() => { tick(); state.clockI = setInterval(tick, 1000); }, 1005 - (Date.now() % 1000));
+  }
+  function chronoToggle() {
+    if (sclk.run) { sclk.acc += Date.now() - sclk.start; sclk.run = false; }
+    else { sclk.start = Date.now(); sclk.run = true; }
+    saveClock(); tick();
+  }
+  function bindStudio() {
+    const box = $('#sclock');
+    if (box) {
+      box.querySelectorAll('[data-cm]').forEach(b => b.addEventListener('click', () => { sclk.mode = b.dataset.cm; saveClock(); litUpTo = -1; tick(); }));
+      box.querySelector('[data-cc="go"]').addEventListener('click', chronoToggle);
+      box.querySelector('[data-cc="reset"]').addEventListener('click', () => { sclk.acc = 0; sclk.start = 0; sclk.run = false; saveClock(); litUpTo = -1; tick(); });
+      $('#sdial').addEventListener('click', () => { if (sclk.mode === 'chrono') chronoToggle(); });
+    }
+    const tb = $('#tally');
+    if (tb) tb.addEventListener('click', openNow);
+    const mc = $('#mclock');
+    if (mc) mc.addEventListener('click', openNow);
+    document.querySelectorAll('[data-theme-set]').forEach(b => b.addEventListener('click', () => {
+      if (window.studioTheme) window.studioTheme.set(b.dataset.themeSet);
+      document.querySelectorAll('[data-theme-set]').forEach(x => x.classList.toggle('on', x === b));
+    }));
+    clearInterval(state.tallyTimer);
+    state.tallyTimer = setInterval(() => { if (!document.hidden) refreshTally(); }, 60000);
+    refreshTally();
+    startClock();
+  }
+
   // ---------- вход ----------
   function showLogin() {
-    clearInterval(state.timer);
+    clearInterval(state.timer); clearInterval(state.tallyTimer); clearTimeout(state.clockT); clearInterval(state.clockI);
     $('#root').innerHTML = `
       <div class="login"><form class="card" id="lf" autocomplete="on">
+        <div class="tally-plate" aria-hidden="true">ЭФИР</div>
         <div class="logo" style="padding:0"><div class="mark">${I.play}</div><div><b>Студия</b><span>Без сказок</span></div></div>
-        <h1>Вход</h1><p>Пульт конвейера: выпуски, журнал, расходы.</p>
+        <h1>Вход в студию</h1><p>Пульт конвейера: выпуски, запись, публикация.</p>
         <input class="input" name="login" placeholder="Логин" autocomplete="username" required>
         <input class="input" name="password" type="password" placeholder="Пароль" autocomplete="current-password" required>
         <button class="btn primary" type="submit">Войти</button>
@@ -137,7 +253,9 @@
       $('#lerr').textContent = '';
       try {
         await api('/api/login', { body: { login: f.get('login'), password: f.get('password') }, noAuthRedirect: true });
-        boot();
+        const plate = $('#lf .tally-plate');  // табло загорается — и мы в студии
+        if (plate) { plate.textContent = 'В ЭФИРЕ'; plate.dataset.state = 'live'; }
+        setTimeout(boot, plate && !matchMedia('(prefers-reduced-motion: reduce)').matches ? 650 : 0);
       } catch (e) { $('#lerr').textContent = e.message; }
     });
   }
@@ -151,20 +269,32 @@
       <div class="app">
         <aside class="side">
           <div class="logo"><div class="mark">${I.play}</div><div><b>Студия</b><span>Без сказок</span></div></div>
+          <button class="tally" id="tally" type="button" data-state="idle" title="Открыть выпуск, который сейчас в работе">${tallyInner(state.now)}</button>
+          <div class="sclock" id="sclock" data-mode="${sclk.mode}">
+            <div class="sclock-dial" id="sdial">${clockSVG()}<div class="sclock-read">
+              <span class="led" id="shm" data-ghost="88:88">--:--</span><span class="led s" id="ss" data-ghost="88">--</span></div></div>
+            <div class="sclock-date" id="sdate"></div>
+            <div class="sclock-tabs"><button type="button" data-cm="time">Время</button><button type="button" data-cm="chrono">Хронометр</button></div>
+            <div class="sclock-ctl"><button type="button" class="go" data-cc="go">Старт</button><button type="button" data-cc="reset">Сброс</button></div>
+          </div>
           <nav class="nav">${nav}</nav>
           <div class="side-foot">
             <div class="who"><span>${esc(state.user.name || state.user.login)}</span><button class="linkbtn" id="logout">Выйти</button></div>
+            <div class="theme-sw" role="group" aria-label="Тема">${[['dark', 'Студия'], ['light', 'День'], ['auto', 'Авто']].map(([k, t]) =>
+              `<button type="button" data-theme-set="${k}" class="${(window.studioTheme ? window.studioTheme.get() : 'dark') === k ? 'on' : ''}">${t}</button>`).join('')}</div>
             <div class="faint">версия ${esc(v.commit || 'dev')}</div>
           </div>
         </aside>
         <div class="main">
           <header class="top"><div class="logo"><div class="mark">${I.play}</div><div><b>Студия</b></div></div>
-            <a class="btn small" href="#/sources">${I.rss}</a></header>
+            <button class="mclock" id="mclock" type="button" title="Открыть выпуск, который сейчас в работе"><span class="mlamp" id="mlamp"></span><span class="led" id="mhm" data-ghost="88:88:88">--:--:--</span></button>
+            <a class="btn small" href="#/sources" aria-label="Источники">${I.rss}</a></header>
           <div class="wrap" id="view"></div>
         </div>
       </div>
       <nav class="tabbar">${tabs}</nav>`;
     $('#logout').addEventListener('click', async () => { await api('/api/logout', { method: 'POST' }).catch(() => {}); showLogin(); });
+    bindStudio();
   }
 
   function markNav() {
@@ -197,6 +327,50 @@
   function closeDrawer() { document.querySelectorAll('.drawer,.shade').forEach(e => e.remove()); }
   document.addEventListener('keydown', e => { if (e.key === 'Escape') closeDrawer(); });
 
+  // ---------- «Сейчас в студии»: монитор и следующий шаг для самого важного выпуска ----------
+  function onairHTML(list) {
+    const now = pickNow(list);
+    const e = now.ep;
+    if (!e) {
+      return `<div class="card onair"><div class="onair-mon" data-state="idle"><div class="onair-slate"><span class="led" data-ghost="88:88">00:00</span>
+        <span>новых выпусков нет</span></div><span class="onair-tag"><i></i>Тихо</span></div>
+        <div class="onair-info"><div class="onair-when">Сейчас в студии</div><h2>Тихо</h2>
+        <p class="onair-next">Новый сценарий появится, когда бот получит /news или /topic. Новости из источников собираются сами каждые 30 минут.</p></div></div>`;
+    }
+    const thumb = e.preview_url && /\/final\.mp4(\?|$)/.test(e.preview_url) ? e.preview_url.replace(/final\.mp4(\?.*)?$/, 'thumb.jpg') : '';
+    const plan = (e.minutes ? pad2(e.minutes) : '00') + ':00';
+    const slate = (led, cap) => `<div class="onair-slate">${led}<span>${esc(cap)}</span></div>`;
+    const planLed = `<span class="led" data-ghost="${ghost(plan)}">${plan}</span>`;
+    const picture = cap => thumb ? `<img src="${esc(thumb)}" alt="" loading="lazy"><span class="onair-play">${I.play}</span>` : slate(planLed, cap);
+    const more = `<button class="btn" type="button" data-onair="${esc(e.id)}">Подробнее</button>`;
+    let screen, next, acts;
+    if (now.state === 'cue') {
+      screen = slate(planLed, `${e.kind === 'script' ? 'сценарий' : 'выпуск'} на ${e.minutes || '—'} мин` + (e.inserts_total ? `, вставки ${e.inserts_ok} из ${e.inserts_total}` : ''));
+      next = 'Сценарий готов, вставки собраны. Открой суфлёр, запиши выпуск и положи файл в папку направления на Google Диске — монтаж начнётся сам.';
+      acts = `<a class="btn primary" href="#/prompter/view?s=${encodeURIComponent(e.id)}">Открыть суфлёр</a>${more}`;
+    } else if (now.state === 'busy') {
+      screen = slate(`<span class="led" data-since="${esc(e.updated_at || e.created_at)}" data-ghost="88:88">00:00</span>`, 'идёт монтаж');
+      next = 'Запись собирается: паузы, вставки, субтитры и шортсы. Превью придёт сюда и в Telegram.';
+      acts = more;
+    } else if (now.state === 'ready') {
+      screen = picture('готов к проверке');
+      next = 'Посмотри выпуск, проверь отмеченные места и опубликуй — у каждой площадки своя кнопка.';
+      acts = `<button class="btn primary" type="button" data-onair="${esc(e.id)}">Проверить и опубликовать</button>`;
+    } else if (now.state === 'live') {
+      screen = picture('публикуется');
+      next = 'Загружаем на площадки. Итог придёт в Telegram и появится в карточке выпуска.';
+      acts = more;
+    } else {
+      screen = picture('опубликован');
+      next = e.youtube_id ? 'Выпуск на площадках. Если на YouTube он с ограниченным доступом — открой его в YouTube Studio.' : 'Выпуск опубликован.';
+      acts = (e.youtube_id ? `<a class="btn" href="https://youtu.be/${esc(e.youtube_id)}" target="_blank" rel="noopener">${I.yt}YouTube</a>` : '') + more;
+    }
+    return `<div class="card onair"><div class="onair-mon" data-state="${now.state}" data-onair="${esc(e.id)}">${screen}
+        <span class="onair-tag"><i></i>${esc(TALLY[now.state].label)}</span></div>
+      <div class="onair-info"><div class="onair-when">Сейчас в студии</div><h2>${esc(e.title || e.id)}</h2>
+        <p class="onair-next">${next}</p><div class="actions">${acts}</div></div></div>`;
+  }
+
   // ---------- Обзор ----------
   async function pageOverview(view) {
     view.innerHTML = head('Обзор', 'Что происходит с конвейером прямо сейчас', reportBtn) + loading();
@@ -227,7 +401,8 @@
             <dt>Память</dt><dd class="num">${h.ram_total_gb ? `занято ${pc(h.ram_used_pct)} из ${nf(h.ram_total_gb)} ГБ${wk.ram_max != null ? ` · пик ${pc(wk.ram_max)}` : ''}${h.swap_used_gb ? ` · своп ${nf(h.swap_used_gb)} ГБ` : ''}` : '—'}</dd>
             <dt>Процессор</dt><dd class="num">${h.cpu_cores ? `${h.cpu_cores} ${plural(h.cpu_cores, 'ядро', 'ядра', 'ядер')} · сейчас ${pc(h.cpu_pct)}${wk.cpu_max != null ? ` · пик ${pc(wk.cpu_max)}` : ''}` : '—'}</dd>` : '';
     const diskLeft = h.disk_days_left != null ? ` · хватит на ~${h.disk_days_left} ${plural(h.disk_days_left, 'день', 'дня', 'дней')}` : '';
-    view.innerHTML = head('Обзор', 'Что происходит с конвейером прямо сейчас', reportBtn) + `
+    refreshTally(d.episodes || []);
+    view.innerHTML = head('Обзор', 'Что происходит с конвейером прямо сейчас', reportBtn) + onairHTML(d.episodes || []) + `
       <div class="grid kpis">
         ${balance}
         <div class="kpi card"><div class="label">Расходы за 30 дней</div><div class="value num">${money(c.d30)}</div>
@@ -256,6 +431,8 @@
       </div>`;
     bindRuns(view);
     bindEps(view);
+    view.querySelectorAll('[data-onair]').forEach(el => el.addEventListener('click', () => openEpisode(el.dataset.onair)));
+    tick();
   }
 
   // ---------- Выпуски ----------
