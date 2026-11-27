@@ -47,6 +47,18 @@ class MetaError(Exception):
     pass
 
 
+# Meta иногда повторяет в тексте ошибки то, что ей прислали (например «Invalid client_secret: …»).
+# Такие куски вырезаем: текст ошибки уходит на экран, в адрес страницы и в журнал.
+_SECRET_KV = re.compile(r'(client_secret|access_token|secret|token|code)(\s*[:=]\s*)\S+', re.I)
+_LONG_HEX = re.compile(r'\b[0-9a-fA-F]{20,}\b')
+_LONG_TOKEN = re.compile(r'\b[A-Za-z0-9_\-|.]{40,}\b')
+
+
+def clean(msg: str) -> str:
+    m = _SECRET_KV.sub(lambda x: x.group(1) + x.group(2) + '***', str(msg or ''))
+    return _LONG_TOKEN.sub('***', _LONG_HEX.sub('***', m))
+
+
 def _now() -> dt.datetime:
     return dt.datetime.now(dt.timezone.utc)
 
@@ -63,8 +75,13 @@ def _call(method: str, url: str, params: dict | None = None, data: dict | None =
         body = {}
     if r.status_code >= 400 or (isinstance(body, dict) and body.get('error')):
         err = (body or {}).get('error') or {}
-        msg = err.get('error_user_msg') or err.get('message') or r.text[:200]
-        raise MetaError(f'Meta ответила ошибкой: {msg}')
+        if not isinstance(err, dict):  # Threads иногда отдаёт ошибку строкой
+            err = {'message': str(err)}
+        msg = err.get('error_user_msg') or err.get('message') or body.get('error_message') if isinstance(body, dict) else ''
+        msg = msg or r.text[:200]
+        if 'client_secret' in str(msg).lower():
+            msg = 'неверный секрет приложения — проверь, что вписан секрет именно этого приложения (у Threads свой)'
+        raise MetaError('Meta ответила ошибкой: ' + clean(msg))
     return body
 
 

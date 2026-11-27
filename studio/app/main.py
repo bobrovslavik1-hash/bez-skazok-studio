@@ -395,13 +395,13 @@ async def meta_callback(kind: str, request: Request, user=Depends(auth.current_u
     _owner(user)
     q = request.query_params
     if q.get('error'):
-        msg = 'Вход отменён' if q.get('error') in ('access_denied', 'user_denied') else 'Meta не дала доступ: ' + (q.get('error_description') or q.get('error'))[:150]
+        msg = 'Вход отменён' if q.get('error') in ('access_denied', 'user_denied') else 'Meta не дала доступ: ' + meta.clean((q.get('error_description') or q.get('error'))[:150])
         return Response(status_code=302, headers={'Location': '/#/connections?err=' + urllib.parse.quote(msg)})
     try:
         msg = await run_in_threadpool(meta.finish, kind, q.get('code', ''), q.get('state', ''), _base(request), user['login'], user['workspace_id'])
         return Response(status_code=302, headers={'Location': '/#/connections?ok=' + urllib.parse.quote(msg)})
     except meta.MetaError as e:
-        return Response(status_code=302, headers={'Location': '/#/connections?err=' + urllib.parse.quote(str(e))})
+        return Response(status_code=302, headers={'Location': '/#/connections?err=' + urllib.parse.quote(meta.clean(str(e)))})
 
 
 @app.post('/oauth/{kind}/uninstall')
