@@ -33,6 +33,7 @@
   const plural = (n, a, b, c) => { const m10 = n % 10, m100 = n % 100; return m10 === 1 && m100 !== 11 ? a : m10 >= 2 && m10 <= 4 && (m100 < 10 || m100 >= 20) ? b : c; };
 
   const I = {
+    copy: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a1 1 0 0 1 1-1h10"/></svg>',
     plug: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M9 7V3M15 7V3"/><path d="M6 7h12v4a6 6 0 0 1-12 0V7z"/><path d="M12 17v4"/></svg>',
     fb: '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M14 8h3V4h-3c-2.8 0-4.5 1.8-4.5 4.6V11H7v4h2.5v8h4v-8h3l.5-4h-3.5V8.8c0-.5.3-.8.5-.8z"/></svg>',
     threads: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"><path d="M16.5 11.2c-.3-2.6-1.9-3.9-4.3-3.9-2.6 0-4.2 1.9-4.2 4.7s1.6 4.8 4.4 4.8c2 0 3.6-1.1 3.6-3 0-2.4-2.6-3-4.6-2.6"/><path d="M19.5 8.5C18.3 5.2 15.6 3.5 12 3.5c-5 0-8 3.4-8 8.5s3 8.5 8 8.5c3.9 0 6.6-2 7.4-5.2"/></svg>',
@@ -312,6 +313,9 @@
     const sc = e.script;
     const fails = (e.inserts || []).filter(i => i.status !== 'ok');
     const v = e.video;
+    const soc = (v && v.social) || {};
+    const socLink = (k, t) => soc[k] && soc[k].ok && soc[k].url ? `<a class="btn" href="${esc(soc[k].url)}" target="_blank" rel="noopener">${t}</a>` : '';
+    const socErr = [['facebook', 'Facebook'], ['threads', 'Threads']].filter(([k]) => soc[k] && !soc[k].ok).map(([k, t]) => `${t}: ${esc(soc[k].error)}`);
     const acts = (e.actions || []).filter(a => EP_ACT[a]);
     const review = v ? [
       ...(v.review || []).map(x => `<li><button class="btn small" data-seek="${x.at_ms || 0}">${tc(x.at_ms)}</button><div class="grow">
@@ -326,10 +330,14 @@
         ${v ? `<a class="btn" href="${esc(v.final_url)}" target="_blank" rel="noopener">Открыть видео</a>`
           : e.preview_url ? `<a class="btn primary" href="${esc(e.preview_url)}" target="_blank" rel="noopener">Смотреть превью</a>` : ''}
         ${e.youtube_url ? `<a class="btn" href="${esc(e.youtube_url)}" target="_blank" rel="noopener">YouTube</a>` : ''}
+        ${socLink('facebook', 'Facebook')}${socLink('threads', 'Threads')}
         ${e.kind === 'script' ? `<a class="btn" href="#/prompter/view?s=${encodeURIComponent(e.id)}">Открыть в суфлёре</a>` : ''}
         ${EP_BUSY.includes(e.status) ? '' : `<button class="btn danger" data-delep>${I.trash}Удалить</button>`}
       </div>
       ${e.status === 'publish_requested' ? `<div class="note">Публикация начнётся в течение минуты — итог придёт в Telegram и появится здесь.</div>` : ''}
+      ${soc.pending ? `<div class="note">Facebook и Threads публикуются в фоне — длинное видео грузится несколько минут, итог придёт в Telegram.</div>` : ''}
+      ${socErr.length && !soc.pending ? `<div class="note warnnote">Не опубликовано — ${socErr.join(' · ')}.
+        <div style="margin-top:8px"><button class="btn small" data-social>Повторить Facebook и Threads</button> <span class="faint">уже выложенное второй раз не пойдёт</span></div></div>` : ''}
       ${v ? `
         ${review.length ? `<div class="section-t">Проверь перед публикацией</div><div class="card"><ul class="rows">${review.join('')}</ul></div>` : ''}
         ${(v.shorts || []).length ? `<div class="section-t">Шортсы · ${v.shorts.length}</div><div class="ep-shorts">${v.shorts.map(s => `<figure>
@@ -363,6 +371,14 @@
       vid.play().catch(() => {});
       vid.scrollIntoView({ behavior: 'smooth', block: 'center' });
     }));
+    const socBtn = box.querySelector('[data-social]');
+    if (socBtn) socBtn.addEventListener('click', async () => {
+      socBtn.disabled = true;
+      try {
+        await api('/api/episodes/' + encodeURIComponent(id) + '/social', { body: {} });
+        toast('Поставил в очередь — итог придёт в Telegram'); openEpisode(id);
+      } catch (err) { toast(err.message, true); socBtn.disabled = false; }
+    });
     const delBtn = box.querySelector('[data-delep]');
     if (delBtn) delBtn.addEventListener('click', async () => {
       if (!await deleteEpisode(e.id, e.title, e.kind === 'script')) return;
@@ -386,47 +402,103 @@
   }
 
   // ---------- Подключения ----------
-  // Каналы и аккаунты, куда публикует конвейер. Входы (OAuth) живут в n8n — Credentials; Студия секретов не видит,
-  // показывает подключения в одном окне: подпись, ссылка, какие процессы пользуются, кто сюда публикует, последние публикации.
+  // Каналы и аккаунты, куда публикует конвейер. YouTube входит через n8n (Credentials) — Студия секретов не видит.
+  // Facebook и Threads подключаются здесь же кнопкой (вход Meta): ключи доступа Студия хранит зашифрованными и не показывает.
   const PLAT_ICON = { youtube: () => I.yt, facebook: () => I.fb, threads: () => I.threads };
-  const HOWTO = {
-    youtube: ['В n8n открой Credentials → Add credential → «YouTube OAuth2 API».', 'Нажми «Sign in with Google» и войди той почтой, на которой канал.',
-      'Назови вход «YouTube — канал …» и сохрани — он сам появится здесь.'],
-    facebook: ['Нужна страница Facebook, где ты администратор, и приложение Meta для публикации.',
-      'Подключим вместе следующим шагом: всё подготовлю, тебе останется войти и выдать разрешения.'],
-    threads: ['Нужен аккаунт Threads и то же приложение Meta с доступом к Threads.', 'Подключим вместе после Facebook.'],
+  const HOWTO_YT = ['В n8n открой Credentials → Add credential → «YouTube OAuth2 API».', 'Нажми «Sign in with Google» и войди той почтой, на которой канал.',
+    'Назови вход «YouTube — канал …» и сохрани — он сам появится здесь.'];
+  // один раз на developers.facebook.com: одно приложение, в нём два сценария — страница и Threads
+  const META_HOWTO = {
+    facebook: ['Открой developers.facebook.com → «Мои приложения» → «Создать приложение». Сценарии: «Управлять всем на своей Странице» и (для Threads) «Доступ к Threads API».',
+      'В сценарии страницы → «Настроить» → разрешения: добавь pages_manage_posts и pages_read_engagement (pages_show_list уже есть).',
+      '«Вход через Facebook для бизнеса» → «Настройки» → «Действительные URI перенаправления OAuth»: вставь адрес ниже и сохрани.',
+      '«Настройки приложения» → «Основное»: скопируй «Идентификатор приложения» и «Секрет приложения» и впиши их сюда кнопкой ниже — не в чат.'],
+    threads: ['В том же приложении сценарий «Доступ к Threads API» → «Настроить»: разрешения threads_basic и threads_content_publish.',
+      'Там же «Настройки»: «Идентификатор приложения Threads» и «Секрет приложения Threads» — это другие номер и секрет, не как у Facebook. Адрес ниже вставь в «Действительные URI перенаправления OAuth».',
+      '«Роли в приложении» → «Роли» → «Добавить людей» → «Тестировщик Threads» → твой аккаунт Threads. Приглашение прими в Threads: Настройки → Аккаунт → Разрешения для сайтов → Приглашения.',
+      'Впиши номер и секрет Threads сюда кнопкой ниже и нажми «Подключить».'],
   };
-  async function pageConnections(view) {
-    view.innerHTML = head('Подключения', 'Каналы и аккаунты, куда конвейер публикует: входы хранятся в n8n, а видно и настраивается всё здесь') + loading();
+  async function copyText(t) {
+    try { await navigator.clipboard.writeText(t); toast('Скопировано'); } catch (e) { window.prompt('Скопируй адрес:', t); }
+  }
+  async function pageConnections(view, params) {
+    view.innerHTML = head('Подключения', 'Каналы и аккаунты, куда конвейер публикует: всё видно и настраивается здесь') + loading();
+    if (params && (params.get('ok') || params.get('err'))) {  // вернулись со входа Meta
+      toast(params.get('ok') || params.get('err'), !params.get('ok'));
+      history.replaceState(null, '', '#/connections');
+    }
     let d;
     try { d = await api('/api/connections'); } catch (e) { view.lastElementChild.outerHTML = failBox(e.message); return; }
     const P = d.platforms || {};
+    const M = d.meta || {};
     const PRIV = { private: 'ограниченный доступ', unlisted: 'по ссылке', public: 'открытый доступ' };
+    const metaState = (pid) => {
+      const m = M[pid] || {};
+      if (m.connected) return ['подключено', 'ok'];
+      if (pid === 'facebook' && (m.pages || []).length) return ['выбери страницу', 'warn'];
+      return [m.app && m.app.app_id && m.app.secret ? 'осталось войти' : 'не подключено', ''];
+    };
+    const metaBlock = (pid) => {
+      const m = M[pid] || {};
+      const ap = m.app || {};
+      const redirect = m.redirect_uri || (location.origin + '/oauth/' + pid + '/callback');
+      const steps = `<ol class="conn-steps">${META_HOWTO[pid].map(x => `<li>${esc(x)}</li>`).join('')}</ol>
+        <div class="conn-redir"><div class="faint">Адрес возврата (URI перенаправления)</div><code>${esc(redirect)}</code>
+          <button class="btn small" data-copy="${esc(redirect)}">${I.copy}Скопировать</button></div>`;
+      const appBtn = (t, tone = '') => `<button class="btn ${tone || 'small'}" data-mapp="${pid}">${t}</button>`;
+      if (m.connected) {
+        const name = pid === 'facebook' ? m.page.name : '@' + m.username;
+        const link = pid === 'facebook' ? m.page.link : 'https://www.threads.net/@' + encodeURIComponent(m.username);
+        const pages = pid === 'facebook' && m.pages.length > 1 ? `<label class="conn-page">Страница <select class="input" data-mpage>${m.pages.map(x =>
+          `<option value="${esc(x.id)}"${x.id === m.page.id ? ' selected' : ''}>${esc(x.name)}${x.can_post ? '' : ' (нет права публиковать)'}</option>`).join('')}</select></label>` : '';
+        return `<div class="conn-acc"><div class="conn-acc-t"><span class="dot ok"></span><b>${esc(name)}</b>
+            <a href="${esc(link)}" target="_blank" rel="noopener">открыть</a></div>
+          ${pid === 'facebook' ? `<div class="faint">вошёл: ${esc(m.user || '—')} · подключено ${when(m.connected_at)}</div>`
+            : `<div class="faint">подключено ${when(m.connected_at)} · доступ продлевается сам${m.expires_at ? ', сейчас до ' + dt(m.expires_at) : ''}</div>`}
+          ${pages}
+          <div class="actions"><a class="btn small" href="/oauth/${pid}/start">Переподключить</a>${appBtn('Приложение')}
+            <button class="btn small danger" data-mdisc="${pid}">Отключить</button></div></div>`;
+      }
+      if (pid === 'facebook' && (m.pages || []).length) {
+        return `<div class="note"><b>Выбери страницу, куда публиковать</b><div class="conn-pages">${m.pages.map(x =>
+          `<button class="btn" data-mpick="${esc(x.id)}">${I.fb}${esc(x.name)}${x.can_post ? '' : ' · нет права публиковать'}</button>`).join('')}</div></div>`;
+      }
+      if (ap.app_id && ap.secret) {
+        return `<div class="faint">Приложение Meta № ${esc(ap.app_id)} · секрет сохранён</div>
+          <div class="actions"><a class="btn primary" href="/oauth/${pid}/start">Подключить</a>${appBtn('Изменить приложение')}</div>
+          <details class="conn-more"><summary>Шаги и адрес возврата</summary>${steps}</details>`;
+      }
+      return `<div class="note"><b>Один раз — приложение Meta</b>${steps}</div>
+        <div class="actions">${appBtn('Вписать номер и секрет приложения', 'primary')}</div>`;
+    };
     const card = (pid) => {
       const p = P[pid] || { accounts: [], directions: [], publications: [] };
+      const isMeta = pid !== 'youtube';
+      const [st, tone] = isMeta ? metaState(pid) : [p.accounts.length ? 'подключено' : 'не подключено', p.accounts.length ? 'ok' : ''];
       const accs = p.accounts.map(a => `<div class="conn-acc"><div class="conn-acc-t"><span class="dot ok"></span><b>${esc(a.title)}</b>
           ${a.url ? `<a href="${esc(a.url)}" target="_blank" rel="noopener">открыть</a>` : ''}</div>
           <div class="faint">вход в n8n: ${esc(a.credential_name)}</div>
           <div class="faint">${a.used_by.length ? 'пользуется: ' + esc(a.used_by.join(', ')) : 'пока ни один процесс не публикует'}</div>
           ${a.notes ? `<div class="faint">${esc(a.notes)}</div>` : ''}
           <button class="btn small" data-edit="${esc(a.credential_id)}">${I.pencil}Изменить</button></div>`).join('');
-      const dirs = p.directions.length ? p.directions.map(x => badge(x.name + ' · ' + (PRIV[x.privacy] || x.privacy), x.enabled ? 'info' : '')).join(' ')
-        : '<span class="muted">ни одно направление сюда не публикует</span>';
-      const pubs = p.publications.length ? `<ul class="rows">${p.publications.map(x => `<li><div class="grow"><div class="title"><a href="${esc(x.url)}" target="_blank" rel="noopener">${esc(x.title)}</a></div>
+      const dirs = p.directions.length ? p.directions.map(x => badge(x.name + (x.privacy ? ' · ' + (PRIV[x.privacy] || x.privacy) : ''), x.enabled ? 'info' : '')).join(' ')
+        : `<span class="muted">ни одно направление сюда не публикует${isMeta ? ' — включается в «Направлениях» → Публикация' : ''}</span>`;
+      const pubs = p.publications.length ? `<ul class="rows">${p.publications.map(x => `<li><div class="grow"><div class="title">${x.url
+          ? `<a href="${esc(x.url)}" target="_blank" rel="noopener">${esc(x.title)}</a>` : esc(x.title)}</div>
           <div class="meta"><span>${when(x.at)}</span>${x.shorts ? `<span>шортсов: ${x.shorts}</span>` : ''}</div></div></li>`).join('')}</ul>`
         : '<div class="muted">Пока ничего не публиковали</div>';
-      return `<div class="card conn"><div class="card-h"><h2><span class="conn-ic ${pid}">${PLAT_ICON[pid]()}</span>${esc(p.title || pid)}</h2>
-          ${badge(p.accounts.length ? 'подключено' : 'не подключено', p.accounts.length ? 'ok' : '')}</div>
+      return `<div class="card conn"><div class="card-h"><h2><span class="conn-ic ${pid}">${PLAT_ICON[pid]()}</span>${esc(p.title || pid)}</h2>${badge(st, tone)}</div>
         <div class="card-b">
           <div class="faint conn-what">${esc(p.what || '')}</div>
-          ${p.accounts.length ? accs : `<div class="note"><b>Как подключить</b><ol class="conn-steps">${HOWTO[pid].map(s => `<li>${esc(s)}</li>`).join('')}</ol></div>`}
-          ${pid === 'youtube' ? `<div class="section-t">Кто сюда публикует</div><div class="conn-dirs">${dirs}</div>
-            <div class="section-t">Последние публикации</div>${pubs}` : ''}
+          ${isMeta ? metaBlock(pid) : (p.accounts.length ? accs : `<div class="note"><b>Как подключить</b><ol class="conn-steps">${HOWTO_YT.map(x => `<li>${esc(x)}</li>`).join('')}</ol></div>`)}
+          <div class="section-t">Кто сюда публикует</div><div class="conn-dirs">${dirs}</div>
+          <div class="section-t">Последние публикации</div>${pubs}
         </div></div>`;
     };
     view.lastElementChild.outerHTML = (d.error ? failBox('Не получилось спросить n8n: ' + d.error) : '') +
       `<div class="grid conns">${['youtube', 'facebook', 'threads'].map(card).join('')}</div>
-       <div class="note" style="margin-top:16px">Пароли и ключи сюда не вводятся, и Студия их не видит: вход в аккаунт делается в n8n. Здесь — подпись, ссылка на канал и куда что публикуется. Куда публикует каждое направление — в «Направлениях».</div>`;
+       <div class="note" style="margin-top:16px">Пароли сюда не вводятся. YouTube входит через n8n. Facebook и Threads — кнопкой «Подключить»: входишь на сайте Meta, а Студия получает доступ и хранит его зашифрованным, никому не показывая. Куда публикует каждое направление — в «Направлениях».</div>`;
+    view.querySelectorAll('[data-copy]').forEach(b => b.addEventListener('click', () => copyText(b.dataset.copy)));
     view.querySelectorAll('[data-edit]').forEach(b => b.addEventListener('click', () => {
       const a = Object.values(P).flatMap(p => p.accounts).find(x => x.credential_id === b.dataset.edit);
       if (!a) return;
@@ -442,6 +514,42 @@
           toast('Сохранено'); route();
         } catch (e) { toast(e.message, true); }
       });
+    }));
+    // приложение Meta: номер не секрет, секрет вписывается только сюда и назад не показывается
+    view.querySelectorAll('[data-mapp]').forEach(b => b.addEventListener('click', () => {
+      const pid = b.dataset.mapp, fb = pid === 'facebook';
+      const ap = (M[pid] || {}).app || {};
+      const dlg = drawer(fb ? 'Приложение Meta для Facebook' : 'Приложение Meta для Threads', '', `<div class="conn-form">
+          <label>${fb ? 'Идентификатор приложения (App ID)' : 'Идентификатор приложения Threads (Threads app ID)'}
+            <input class="input" id="mid" inputmode="numeric" autocomplete="off" maxlength="25" value="${esc(ap.app_id || '')}" placeholder="только цифры"></label>
+          <label>${fb ? 'Секрет приложения (App Secret)' : 'Секрет приложения Threads (Threads app secret)'}
+            <input class="input" id="msec" type="password" autocomplete="new-password" spellcheck="false" maxlength="64"
+              placeholder="${ap.secret ? 'сохранён — впиши, только если меняешь' : 'нажми «Показать» в Meta, скопируй и вставь сюда'}"></label>
+          ${fb ? `<details class="conn-more"><summary>Если Meta попросит «конфигурацию» входа</summary>
+            <label>Номер конфигурации (config_id)<input class="input" id="mcfg" inputmode="numeric" autocomplete="off" maxlength="25" value="${esc(ap.config_id || '')}" placeholder="обычно пусто"></label></details>` : ''}
+          <div class="faint">Секрет сразу шифруется на сервере. Назад его не покажу — ни здесь, ни в чате.</div>
+          <div class="actions"><button class="btn primary" id="msave">Сохранить</button></div></div>`);
+      dlg.querySelector('#msave').addEventListener('click', async (ev) => {
+        ev.target.disabled = true;
+        try {
+          const cfg = dlg.querySelector('#mcfg');
+          await api('/api/meta/' + pid + '/app', { method: 'PUT', body: { app_id: dlg.querySelector('#mid').value, secret: dlg.querySelector('#msec').value,
+            config_id: cfg ? cfg.value : '' } });
+          dlg.querySelector('#msec').value = '';
+          toast('Сохранено — теперь нажми «Подключить»'); closeDrawer(); route();
+        } catch (e) { toast(e.message, true); ev.target.disabled = false; }
+      });
+    }));
+    const setPage = async (id) => {
+      try { await api('/api/meta/facebook/page', { method: 'PUT', body: { page_id: id } }); toast('Страница выбрана'); route(); }
+      catch (e) { toast(e.message, true); }
+    };
+    view.querySelectorAll('[data-mpick]').forEach(b => b.addEventListener('click', () => setPage(b.dataset.mpick)));
+    view.querySelectorAll('[data-mpage]').forEach(s => s.addEventListener('change', () => setPage(s.value)));
+    view.querySelectorAll('[data-mdisc]').forEach(b => b.addEventListener('click', async () => {
+      const pid = b.dataset.mdisc;
+      if (!confirm(`Отключить ${pid === 'facebook' ? 'Facebook' : 'Threads'}? Студия забудет доступ, публикации туда остановятся. Подключить снова — одной кнопкой.`)) return;
+      try { await api('/api/meta/' + pid, { method: 'DELETE' }); toast('Отключено'); route(); } catch (e) { toast(e.message, true); }
     }));
   }
 
@@ -464,6 +572,7 @@
         <dt>Вставки</dt><dd>${esc(x.inserts.map(k => (d.kinds[k] || k).toLowerCase()).join(', ')) || '—'}</dd>
         <dt>Монтаж</dt><dd>${x.cut_pauses ? 'паузы длиннее ' + x.pause_cut_ms + ' мс — вырезать' : 'паузы не трогать'}${x.cut_retakes ? ', дубли — убирать' : ''}</dd>
         <dt>YouTube</dt><dd>${x.publish_youtube ? esc((d.privacy[x.youtube_privacy] || x.youtube_privacy).toLowerCase()) : 'не публиковать'}</dd>
+        ${x.publish_facebook || x.publish_threads ? `<dt>Ещё</dt><dd>${[x.publish_facebook && 'Facebook', x.publish_threads && 'Threads'].filter(Boolean).join(', ')}</dd>` : ''}
         <dt>Папка на Диске</dt><dd>${x.folder_url ? `<a href="${esc(x.folder_url)}" target="_blank" rel="noopener">открыть</a>` : 'не задана'}</dd>
       </dl>
       <div class="foot"><a class="btn small" href="#/directions/edit?id=${encodeURIComponent(x.id)}">${I.pencil}Изменить</a></div></div>`).join('');
@@ -482,9 +591,11 @@
     if (!isNew && !x) { view.lastElementChild.outerHTML = failBox('Нет такого направления'); return; }
     const blank = { id: '', name: '', enabled: true, mode: 'free', language: 'ru', minutes: 15, words_per_min: 130, shorts: 3, sources_on: false,
       style_prompt: '', inserts: ['card', 'quote', 'number', 'map', 'stock', 'wikimedia'], stock_sources: [], cut_pauses: true, pause_cut_ms: 700,
-      pause_keep_ms: 150, cut_retakes: true, publish_youtube: false, youtube_privacy: 'private', brand_color: '#111111', accent_color: '#E53935',
+      pause_keep_ms: 150, cut_retakes: true, publish_youtube: false, youtube_privacy: 'private', publish_facebook: false, publish_threads: false,
+      brand_color: '#111111', accent_color: '#E53935',
       logo_url: '', drive_folder_id: '', folder_url: '' };
-    const sw = (k, on) => `<label class="switch"><input type="checkbox" data-k="${k}" ${on ? 'checked' : ''}><i></i></label>`;
+    const sw = (k, on, off) => `<label class="switch${off ? ' off' : ''}"><input type="checkbox" data-k="${k}" ${on ? 'checked' : ''}${off ? ' disabled' : ''}><i></i></label>`;
+    const cn = d.connected || {};
     const row = (label, inner, hint) => `<div class="df"><div class="df-l">${label}${hint ? `<div class="faint">${hint}</div>` : ''}</div><div class="df-i">${inner}</div></div>`;
     const sel = (k, opts, v) => `<select class="input" data-k="${k}">${Object.entries(opts).map(([o, t]) => `<option value="${o}"${o === v ? ' selected' : ''}>${esc(t)}</option>`).join('')}</select>`;
     const num = (k, v, min, max, step = 1) => `<input class="input df-num" type="number" data-k="${k}" value="${v}" min="${min}" max="${max}" step="${step}">`;
@@ -518,9 +629,13 @@
         ${row('Убирать дубли', sw('cut_retakes', v.cut_retakes), 'если фразу прочитал два раза — останется последняя')}
       </div></div>
       <div class="card"><div class="card-h"><h2>Публикация</h2></div><div class="card-b">
-        ${row('YouTube', sw('publish_youtube', v.publish_youtube))}
+        ${row('YouTube', sw('publish_youtube', v.publish_youtube), 'выпуск и шортсы')}
         ${row('Доступ к видео', sel('youtube_privacy', d.privacy, v.youtube_privacy))}
-        <div class="note">Выбор канала, Facebook и Threads появятся в разделе «Подключения» — это следующий шаг.</div>
+        ${row('Facebook', sw('publish_facebook', v.publish_facebook, !cn.facebook && !v.publish_facebook),
+          cn.facebook ? 'длинное видео на страницу' : 'сначала подключи страницу в <a href="#/connections">«Подключениях»</a>')}
+        ${row('Threads', sw('publish_threads', v.publish_threads, !cn.threads && !v.publish_threads),
+          cn.threads ? 'новость текстом: заголовок, главные темы и ссылка на выпуск' : 'сначала подключи в <a href="#/connections">«Подключениях»</a>')}
+        <div class="note">Facebook и Threads публикуются после YouTube, тем же нажатием «Опубликовать». Ссылка в Threads ведёт на YouTube, если видео там открыто, иначе — на Facebook.</div>
       </div></div>
       <div class="card"><div class="card-h"><h2>Оформление и папка</h2></div><div class="card-b">
         ${row('Цвет фона карточек', `<input class="input df-color" type="color" data-k="brand_color" value="${esc(v.brand_color)}">`)}

@@ -159,7 +159,23 @@ def _video(meta: dict, preview_url: str | None) -> dict | None:
                    for x in (st.get('low_conf') or []) if isinstance(x, dict)],
         'missed': [{'marker': str(x.get('marker')), 'why': x.get('why') or ''} for x in (st.get('inserts_missed') or []) if isinstance(x, dict)],
         'credits': meta.get('credits') or [],
+        'social': _social(meta),
     }
+
+
+def _social(meta: dict) -> dict:
+    """Где ещё опубликовано: Facebook и Threads — ссылка или причина, почему нет; pending — ещё публикуется."""
+    soc = meta.get('social') or {}
+    out = {}
+    for k, idk, urlk in (('facebook', 'fb_video_id', 'fb_url'), ('threads', 'threads_post_id', 'threads_url')):
+        s = soc.get(k) or {}
+        if meta.get(idk):
+            out[k] = {'ok': True, 'url': meta.get(urlk) or s.get('url') or ''}
+        elif s:
+            out[k] = {'ok': False, 'error': s.get('error') or ''}
+    if meta.get('social_pending'):
+        out['pending'] = True
+    return out
 
 
 DELETE_BUSY = ('recording', 'rendering', 'publishing', 'publish_requested', 'redo')

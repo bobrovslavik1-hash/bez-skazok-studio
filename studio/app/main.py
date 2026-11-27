@@ -5,6 +5,7 @@ import json
 import logging
 import threading
 import time
+import urllib.parse
 from contextlib import asynccontextmanager
 
 from fastapi import Depends, FastAPI, HTTPException, Request
@@ -12,7 +13,7 @@ from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from starlette.concurrency import run_in_threadpool
 
-from . import apify, auth, catalog, config, connections, content, costs, db, directions, feeds, hostwatch, logs, n8n, prompter, services, sources, vault
+from . import apify, auth, catalog, config, connections, content, costs, db, directions, feeds, hostwatch, logs, meta, n8n, prompter, services, sources, vault
 from .mcp_server import mcp
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s %(name)s %(levelname)s %(message)s')
@@ -41,6 +42,8 @@ async def lifespan(app: FastAPI):
     threading.Thread(target=sources.loop, name='sources-collector', daemon=True).start()
     threading.Thread(target=catalog.loop, name='catalog-check', daemon=True).start()
     threading.Thread(target=hostwatch.loop, name='host-watch', daemon=True).start()
+    threading.Thread(target=meta.loop, name='meta-refresh', daemon=True).start()
+    threading.Thread(target=meta.queue_loop, name='meta-queue', daemon=True).start()
     async with mcp.session_manager.run():
         yield
     db.close()
@@ -314,7 +317,101 @@ def _src_errors(fn, *a, **kw):
 
 @app.get('/api/connections')
 def connections_list(user=Depends(auth.current_user)):
-    return connections.overview(user['workspace_id'])
+    return {**connections.overview(user['workspace_id']), 'meta': meta.status(user['workspace_id'])}
+
+
+# ---------- Facebook и Threads: вход через Meta прямо из Студии ----------
+def _base(request: Request) -> str:
+    """Адрес Студии для ссылок входа Meta: берём из настроек сервера, а не из запроса (заголовок Host можно подделать)."""
+    if config.PUBLIC_URL:
+        return config.PUBLIC_URL
+    host = request.headers.get('host', '')
+    return ('http://' if host.startswith(('127.0.0.1', 'localhost')) else 'https://') + host
+
+
+def _meta_errors(fn, *a, **kw):
+    try:
+        return fn(*a, **kw)
+    except meta.MetaError as e:
+        raise HTTPException(400, str(e))
+    except LookupError as e:
+        raise HTTPException(404, str(e))
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+
+
+@app.put('/api/meta/{kind}/app')
+async def meta_app_save(kind: str, request: Request, user=Depends(auth.current_user)):
+    auth.require_write(request)
+    _owner(user)
+    b = await _body(request)
+    return await run_in_threadpool(_meta_errors, meta.save_app, kind, str(b.get('app_id') or ''), str(b.get('secret') or ''), user['login'],
+                                   user['workspace_id'], config_id=str(b.get('config_id') or ''))
+
+
+@app.put('/api/meta/facebook/page')
+async def meta_page(request: Request, user=Depends(auth.current_user)):
+    auth.require_write(request)
+    _owner(user)
+    b = await _body(request)
+    return _meta_errors(meta.choose_page, str(b.get('page_id') or ''), user['login'], user['workspace_id'])
+
+
+@app.delete('/api/meta/{kind}')
+def meta_disconnect(kind: str, request: Request, user=Depends(auth.current_user)):
+    auth.require_write(request)
+    _owner(user)
+    return _meta_errors(meta.disconnect, kind, user['login'], user['workspace_id'])
+
+
+@app.post('/api/episodes/{eid}/social')
+def episode_social(eid: str, request: Request, user=Depends(auth.current_user)):
+    """Ещё раз опубликовать выпуск в Facebook и Threads (уже выложенное второй раз не пойдёт)."""
+    auth.require_write(request)
+    _owner(user)
+    r = _meta_errors(meta.request_publish, eid, user['workspace_id'])
+    db.audit(user['login'], 'episode_social', {'id': eid, 'targets': r.get('targets')}, user['workspace_id'])
+    return r
+
+
+@app.get('/oauth/{kind}/start')
+def meta_start(kind: str, request: Request, user=Depends(auth.current_user)):
+    if kind not in meta.KINDS:
+        raise HTTPException(404, 'Неизвестная площадка')
+    _owner(user)
+    try:
+        return Response(status_code=302, headers={'Location': meta.login_url(kind, _base(request), user['workspace_id'])})
+    except meta.MetaError as e:
+        return Response(status_code=302, headers={'Location': '/#/connections?err=' + urllib.parse.quote(str(e))})
+
+
+@app.get('/oauth/{kind}/callback')
+async def meta_callback(kind: str, request: Request, user=Depends(auth.current_user)):
+    if kind not in meta.KINDS:
+        raise HTTPException(404, 'Неизвестная площадка')
+    _owner(user)
+    q = request.query_params
+    if q.get('error'):
+        msg = 'Вход отменён' if q.get('error') in ('access_denied', 'user_denied') else 'Meta не дала доступ: ' + (q.get('error_description') or q.get('error'))[:150]
+        return Response(status_code=302, headers={'Location': '/#/connections?err=' + urllib.parse.quote(msg)})
+    try:
+        msg = await run_in_threadpool(meta.finish, kind, q.get('code', ''), q.get('state', ''), _base(request), user['login'], user['workspace_id'])
+        return Response(status_code=302, headers={'Location': '/#/connections?ok=' + urllib.parse.quote(msg)})
+    except meta.MetaError as e:
+        return Response(status_code=302, headers={'Location': '/#/connections?err=' + urllib.parse.quote(str(e))})
+
+
+@app.post('/internal/meta/publish')
+async def meta_publish(request: Request):
+    """Вызывает К6 после YouTube: поставить выпуск в очередь на Facebook и Threads. Ключ — тот же, что у сервера монтажа."""
+    key = request.headers.get('x-worker-key', '')
+    if not config.WORKER_KEY or not hmac.compare_digest(key, config.WORKER_KEY):
+        raise HTTPException(403, 'Нет доступа')
+    b = await _body(request)
+    try:  # только ставим в очередь и сразу отвечаем: длинное видео грузится минуты, К6 ждать не должен
+        return await run_in_threadpool(meta.request_publish, str(b.get('episode_id') or ''))
+    except LookupError as e:
+        raise HTTPException(404, str(e))
 
 
 @app.put('/api/connections/{cred_id}')

@@ -11,13 +11,25 @@ from cryptography.fernet import Fernet, InvalidToken
 
 from . import config, db
 
-SERVICES = {'apify': 'Apify'}
+SERVICES = {'apify': 'Apify', 'meta_app_secret': 'Meta (Facebook) — секрет приложения', 'threads_app_secret': 'Threads — секрет приложения'}
 
 
 def _fernet() -> Fernet:
     if not config.SECRET:
         raise RuntimeError('На сервере нет STUDIO_SECRET — ключи сервисов хранить нечем')
     return Fernet(base64.urlsafe_b64encode(hashlib.sha256(b'bez-skazok-vault:' + config.SECRET.encode()).digest()))
+
+
+def seal(value: str) -> str:
+    """Зашифровать произвольный секрет (доступ к странице Facebook, к Threads) тем же ключом, что и ключи сервисов."""
+    return _fernet().encrypt(value.encode()).decode()
+
+
+def unseal(token: str) -> str | None:
+    try:
+        return _fernet().decrypt(str(token or '').encode()).decode()
+    except (InvalidToken, ValueError):
+        return None
 
 
 def _check(service: str) -> str:

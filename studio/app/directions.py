@@ -18,7 +18,9 @@ PRIVACY = {'private': 'Ограниченный доступ', 'unlisted': 'До
 LANGS = {'ru': 'Русский', 'uk': 'Украинский', 'en': 'Английский'}
 STOCK = ('coverr', 'wikimedia', 'openverse', 'nasa')
 
-FLAGS = ('enabled', 'sources_on', 'ai_images', 'publish_youtube', 'publish_telegram', 'publish_tiktok', 'cut_pauses', 'cut_retakes')
+FLAGS = ('enabled', 'sources_on', 'ai_images', 'publish_youtube', 'publish_telegram', 'publish_tiktok', 'cut_pauses', 'cut_retakes',
+         'publish_facebook', 'publish_threads')
+EXTRA = ('sort', 'publish_facebook', 'publish_threads')  # есть в Студии, но не в запросе n8n: Facebook и Threads публикует сама Студия
 LABELS = {'minutes': 'Длительность', 'words_per_min': 'Темп чтения', 'shorts': 'Шортсов', 'pause_cut_ms': 'Паузы длиннее',
           'pause_keep_ms': 'Оставлять от паузы', 'sort': 'Порядок'}
 INTS = {'minutes': (1, 90), 'words_per_min': (60, 250), 'shorts': (0, 5), 'pause_cut_ms': (200, 3000), 'pause_keep_ms': (0, 1000), 'sort': (0, 999)}
@@ -37,7 +39,7 @@ FOLDER_RE = re.compile(r'(?:folders/|id=)([A-Za-z0-9_-]{10,})')
 
 def _row(r: dict) -> dict:
     """Строка базы → вид для Студии: да/нет — True/False, вставки и сток — списки, ссылка на папку."""
-    out = {k: r.get(k) for k in FIELDS + ('sort',)}
+    out = {k: r.get(k) for k in FIELDS + EXTRA}
     for k in FLAGS:
         out[k] = str(r.get(k) or '').upper() == 'TRUE'
     out['inserts'] = [k for k in str(r.get('inserts') or '').split(',') if k.strip()]
@@ -196,4 +198,7 @@ def create(did: str, data: dict, copy_from: str | None = None, actor: str = 'own
 
 def meta() -> dict:
     """Справочники для формы."""
-    return {'kinds': KINDS, 'modes': MODES, 'privacy': PRIVACY, 'langs': LANGS, 'stock': list(STOCK)}
+    from . import meta  # подключены ли Facebook и Threads — чтобы в форме не включить публикацию «в никуда»
+    st = meta.status()
+    return {'kinds': KINDS, 'modes': MODES, 'privacy': PRIVACY, 'langs': LANGS, 'stock': list(STOCK),
+            'connected': {'facebook': st['facebook']['connected'], 'threads': st['threads']['connected']}}

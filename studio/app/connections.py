@@ -1,9 +1,9 @@
 """Подключения: каналы и аккаунты, куда конвейер публикует (YouTube, Facebook, Threads).
 
-Сами входы (OAuth) живут в n8n — Credentials. Студия их не хранит и секретов не видит: берёт из n8n список входов
-(имя и тип), находит, какие процессы ими пользуются, и показывает всё в одном окне вместе с тем, что знает сама:
-ссылка на канал, какие направления туда публикуют, последние публикации. Подпись и ссылку на канал можно поправить
-в Студии — они хранятся в studio_accounts.
+YouTube входит через n8n — Credentials: Студия секретов не видит, берёт из n8n список входов (имя и тип), находит, какие
+процессы ими пользуются, и показывает всё в одном окне вместе с тем, что знает сама: ссылка на канал, какие направления
+туда публикуют, последние публикации. Подпись и ссылку на канал можно поправить в Студии — они хранятся в studio_accounts.
+Facebook и Threads подключаются кнопкой прямо в Студии (вход Meta) и публикует их сама Студия — см. meta.py.
 """
 import re
 
@@ -47,11 +47,15 @@ def overview(ws: str = config.WORKSPACE) -> dict:
     except n8n.N8nError as e:
         creds, usage, err = [], {}, str(e)
     saved = {r['credential_id']: r for r in db.q('SELECT * FROM studio_accounts WHERE workspace_id = %s', (ws,))}
-    dirs = db.q("SELECT id, name, enabled, publish_youtube, youtube_privacy FROM studio_directions WHERE workspace_id = %s ORDER BY sort, id", (ws,)) \
-        if db.table_exists('studio_directions') else []
-    pubs = db.q("SELECT id, coalesce(script->>'yt_title', script->>'title', id) AS title, youtube_id, meta->'yt_shorts' AS shorts, updated_at "
-                "FROM k_episodes WHERE youtube_id IS NOT NULL AND youtube_id <> '' ORDER BY updated_at DESC LIMIT 5") \
-        if db.table_exists('k_episodes') else []
+    dirs = db.q("SELECT id, name, enabled, publish_youtube, youtube_privacy, publish_facebook, publish_threads FROM studio_directions "
+                "WHERE workspace_id = %s ORDER BY sort, id", (ws,)) if db.table_exists('studio_directions') else []
+    has_eps = db.table_exists('k_episodes')
+    title = "coalesce(script->>'yt_title', script->>'title', id) AS title"
+    pubs = db.q(f"SELECT id, {title}, youtube_id, meta->'yt_shorts' AS shorts, updated_at "
+                "FROM k_episodes WHERE youtube_id IS NOT NULL AND youtube_id <> '' ORDER BY updated_at DESC LIMIT 5") if has_eps else []
+    social = {k: db.q(f"SELECT id, {title}, meta->>'{u}' AS url, updated_at FROM k_episodes WHERE meta->>'{i}' IS NOT NULL "
+                      "ORDER BY updated_at DESC LIMIT 5") if has_eps else []
+              for k, i, u in (('facebook', 'fb_video_id', 'fb_url'), ('threads', 'threads_post_id', 'threads_url'))}
     out = {}
     for pid, p in PLATFORMS.items():
         accounts = []
@@ -62,13 +66,15 @@ def overview(ws: str = config.WORKSPACE) -> dict:
             accounts.append({'credential_id': c['id'], 'credential_name': c['name'], 'title': s.get('title') or c['name'],
                              'url': s.get('url') or '', 'notes': s.get('notes') or '', 'used_by': usage.get(c['id'], []),
                              'connected_at': c.get('created_at')})
-        targets = []
+        targets = [{'id': d['id'], 'name': d['name'], 'enabled': d['enabled'] == 'TRUE', 'privacy': d['youtube_privacy'] if pid == 'youtube' else ''}
+                   for d in dirs if d.get('publish_' + pid) == 'TRUE']
         if pid == 'youtube':
-            targets = [{'id': d['id'], 'name': d['name'], 'enabled': d['enabled'] == 'TRUE', 'privacy': d['youtube_privacy']}
-                       for d in dirs if d['publish_youtube'] == 'TRUE']
-        out[pid] = {'title': p['title'], 'what': p['what'], 'accounts': accounts, 'directions': targets,
-                    'publications': [{'id': r['id'], 'title': r['title'], 'url': 'https://youtu.be/' + r['youtube_id'],
-                                      'shorts': len(r['shorts'] or {}), 'at': r['updated_at'].isoformat()} for r in pubs] if pid == 'youtube' else []}
+            publications = [{'id': r['id'], 'title': r['title'], 'url': 'https://youtu.be/' + r['youtube_id'],
+                             'shorts': len(r['shorts'] or {}), 'at': r['updated_at'].isoformat()} for r in pubs]
+        else:
+            publications = [{'id': r['id'], 'title': r['title'], 'url': r['url'] or '', 'shorts': 0, 'at': r['updated_at'].isoformat()}
+                            for r in social[pid]]
+        out[pid] = {'title': p['title'], 'what': p['what'], 'accounts': accounts, 'directions': targets, 'publications': publications}
     return {'platforms': out, 'error': err}
 
 
