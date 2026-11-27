@@ -420,15 +420,15 @@
     error: ['err', 'проверка не прошла'], unknown: ['', 'вход не проверен'] };
   // один раз на developers.facebook.com: одно приложение, в нём два сценария — страница и Threads
   const META_HOWTO = {
-    facebook: ['Открой developers.facebook.com → «Мои приложения» → «Создать приложение». Сценарии: «Управлять всем на своей Странице» и (для Threads) «Доступ к Threads API».',
-      'В сценарии страницы → «Настроить» → разрешения: добавь pages_manage_posts и pages_read_engagement (pages_show_list и business_management уже есть).',
-      '«Вход через Facebook для бизнеса» → «Конфигурации» → «Создать»: вариант «Общий», маркер доступа пользователя, разрешения pages_show_list, pages_read_engagement, pages_manage_posts, publish_video, business_management. Номер конфигурации впиши сюда в «Изменить приложение».',
-      '«Вход через Facebook для бизнеса» → «Настройки» → «Действительные URI перенаправления OAuth»: вставь адрес ниже и сохрани.',
-      '«Настройки приложения» → «Основное»: скопируй «Идентификатор приложения» и «Секрет приложения» и впиши их сюда кнопкой ниже — не в чат.',
-      'Там же впиши адрес политики конфиденциальности и удаления данных (ниже). После первой проверки переключи приложение в режим «Опубликовано» (Live) — иначе публикации видишь только ты.'],
-    threads: ['В том же приложении сценарий «Доступ к Threads API» → «Настроить»: разрешения threads_basic и threads_content_publish.',
-      'Там же «Настройки»: «Идентификатор приложения Threads» и «Секрет приложения Threads» — это другие номер и секрет, не как у Facebook. Адрес ниже вставь в «Действительные URI перенаправления OAuth».',
-      '«Роли в приложении» → «Роли» → «Добавить людей» → «Тестировщик Threads» → твой аккаунт Threads. Приглашение прими в Threads: Настройки → Аккаунт → Разрешения для сайтов → Приглашения.',
+    facebook: ['Открой developers.facebook.com → «Мои приложения» → «Создать приложение». Выбери только два сценария: «Управлять всем на своей Странице» и «Доступ к Threads API». С лишними сценариями Meta не даст опубликовать приложение без подтверждения компании.',
+      '«Настройки приложения» → «Основное»: домен Студии в «Домены приложений», адрес политики и «URL инструкций для удаления данных» (ниже), категория «Бизнес и Страницы» → «Сохранить изменения». Потом слева «Опубликовать» → «Опубликовать» — иначе публикации видишь только ты.',
+      'Сценарии → «Управлять всем на своей Странице» → «Настроить»: добавь pages_manage_posts и pages_read_engagement.',
+      '«Вход через Facebook для бизнеса» → «Настройки»: адрес возврата (ниже) вставь в «Действительные URI перенаправления для OAuth» и нажми Enter; адрес деавторизации и удаления данных — в поля ниже; «Сохранить изменения».',
+      '«Вход через Facebook для бизнеса» → «Конфигурации» → «Создать конфигурацию»: «Общий», «Маркер доступа пользователя», разрешения pages_show_list, pages_read_engagement, pages_manage_posts, business_management.',
+      'Кнопкой ниже впиши номер приложения, секрет («Основное» → «Показать») и номер конфигурации — не в чат. Потом «Подключить».'],
+    threads: ['В том же приложении сценарий «Доступ к Threads API» → «Настроить»: добавь threads_content_publish.',
+      'Там же «Настройки»: адрес возврата (ниже) — в поле перенаправления, Enter; адреса Uninstall и Delete — в свои поля; «Сохранить». «Идентификатор приложения Threads» и «Секрет приложения Threads» — свои, не как у Facebook.',
+      '«Роли в приложении» → «Роли» → «Добавить людей» → «Тестировщик Threads» → твой аккаунт Threads. Приглашение прими на threads.com: Настройки → «Ещё настройки» → «Разрешения для сайтов» → «Приглашения».',
       'Впиши номер и секрет Threads сюда кнопкой ниже и нажми «Подключить».'],
   };
   async function copyText(t) {
@@ -460,9 +460,12 @@
           <button class="btn small" data-copy="${esc(u)}">${I.copy}Скопировать</button></div>`;
       const steps = `<ol class="conn-steps">${META_HOWTO[pid].map(x => `<li>${esc(x)}</li>`).join('')}</ol>
         ${urlBox('Адрес возврата (URI перенаправления)', redirect)}
-        ${pid === 'facebook' ? urlBox('Политика конфиденциальности и удаление данных', privacy)
-          : urlBox('Uninstall Callback URL (если просит)', m.uninstall_url || location.origin + '/oauth/threads/uninstall') +
-            urlBox('Delete Callback URL (если просит)', m.delete_url || location.origin + '/oauth/threads/delete')}`;
+        ${pid === 'facebook' ? urlBox('Политика конфиденциальности', privacy) +
+            urlBox('Инструкции по удалению данных («Основное»)', privacy + '#delete') +
+            urlBox('Деавторизация URL обратного вызова', m.uninstall_url || location.origin + '/oauth/facebook/uninstall') +
+            urlBox('URL запроса на удаление данных', m.delete_url || location.origin + '/oauth/facebook/delete')
+          : urlBox('Uninstall Callback URL', m.uninstall_url || location.origin + '/oauth/threads/uninstall') +
+            urlBox('Delete Callback URL', m.delete_url || location.origin + '/oauth/threads/delete')}`;
       const appBtn = (t, tone = '') => `<button class="btn ${tone || 'small'}" data-mapp="${pid}">${t}</button>`;
       if (m.connected) {
         const name = pid === 'facebook' ? m.page.name : '@' + m.username;
@@ -558,8 +561,9 @@
           <label>${fb ? 'Секрет приложения (App Secret)' : 'Секрет приложения Threads (Threads app secret)'}
             <input class="input" id="msec" type="password" autocomplete="new-password" spellcheck="false" maxlength="64"
               placeholder="${ap.secret ? 'сохранён — впиши, только если меняешь' : 'нажми «Показать» в Meta, скопируй и вставь сюда'}"></label>
-          ${fb ? `<details class="conn-more"><summary>Если Meta попросит «конфигурацию» входа</summary>
-            <label>Номер конфигурации (config_id)<input class="input" id="mcfg" inputmode="numeric" autocomplete="off" maxlength="25" value="${esc(ap.config_id || '')}" placeholder="обычно пусто"></label></details>` : ''}
+          ${fb ? `<label>Номер конфигурации («Вход через Facebook для бизнеса» → «Конфигурации»)
+            <input class="input" id="mcfg" inputmode="numeric" autocomplete="off" maxlength="25" value="${esc(ap.config_id || '')}" placeholder="только цифры"></label>` : ''}
+          ${ap.app_id ? `<div class="faint">Меняешь приложение — впиши новый номер, новый секрет${fb ? ' и номер новой конфигурации' : ''}. Старый вход сбросится, потом нажмёшь «Подключить».</div>` : ''}
           <div class="faint">Секрет сразу шифруется на сервере. Назад его не покажу — ни здесь, ни в чате.</div>
           <div class="actions"><button class="btn primary" id="msave">Сохранить</button></div></div>`);
       dlg.querySelector('#msave').addEventListener('click', async (ev) => {

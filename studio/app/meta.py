@@ -113,19 +113,33 @@ def save_app(kind: str, app_id: str, secret: str, actor: str = 'owner', ws: str 
     app_id = re.sub(r'\D', '', str(app_id or ''))
     if not 5 <= len(app_id) <= 25:
         raise ValueError('Номер приложения (App ID) — только цифры, его видно в «Настройки приложения → Основное»')
+    prev = db.get_setting(APP_KEY[kind], {}, ws) or {}
+    # другое приложение: старый секрет и старая конфигурация к нему не подходят, старый вход — тоже
+    changed = bool(prev.get('app_id')) and str(prev.get('app_id')) != app_id
     secret = str(secret or '').strip()
     if secret:
         if not re.fullmatch(r'[0-9a-fA-F]{20,64}', secret):
             raise ValueError('Секрет приложения — 32 знака из цифр и букв a–f, скопируй его целиком')
-        vault.put(SECRET_KEY[kind], secret, actor, ws)
+    elif changed:
+        raise ValueError('Это другое приложение — впиши и его секрет: у каждого приложения свой')
     elif not vault.info(SECRET_KEY[kind], ws)['set']:
         raise ValueError('Вставь секрет приложения (App Secret)')
     # номер конфигурации «Входа для бизнеса» — не обязателен: без него вход просит разрешения списком (scope)
     cfg = re.sub(r'\D', '', str(config_id or '')) if kind == 'facebook' else ''
     if cfg and not 5 <= len(cfg) <= 25:
         raise ValueError('Номер конфигурации — только цифры')
+    if cfg and cfg == app_id:
+        raise ValueError('В поле конфигурации стоит номер приложения — впиши «Номер конфигурации» из «Вход через Facebook для бизнеса → Конфигурации»')
+    if changed and cfg and cfg == str(prev.get('config_id') or ''):
+        raise ValueError('Номер конфигурации остался от старого приложения — впиши номер конфигурации нового')
+    if secret:
+        vault.put(SECRET_KEY[kind], secret, actor, ws)
     db.set_setting(APP_KEY[kind], {'app_id': app_id, 'config_id': cfg, 'set_by': actor, 'set_at': _now().isoformat()}, ws)
-    db.audit(actor, 'meta_app_set', {'kind': kind, 'app_id': app_id}, ws)
+    db.audit(actor, 'meta_app_set', {'kind': kind, 'app_id': app_id, 'changed': changed}, ws)
+    if changed and db.get_setting(CONN_KEY[kind], None, ws):
+        # ключи доступа выданы старым приложением — публикации через них видны не всем; нужен новый вход
+        db.x('DELETE FROM studio_settings WHERE workspace_id = %s AND key = %s', (ws, CONN_KEY[kind]))
+        db.audit(actor, 'meta_disconnect', {'kind': kind, 'why': 'app_changed'}, ws)
     return status(ws)
 
 
