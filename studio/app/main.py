@@ -12,7 +12,7 @@ from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from starlette.concurrency import run_in_threadpool
 
-from . import apify, auth, catalog, config, content, costs, db, feeds, logs, n8n, prompter, services, sources, vault
+from . import apify, auth, catalog, config, content, costs, db, feeds, hostwatch, logs, n8n, prompter, services, sources, vault
 from .mcp_server import mcp
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s %(name)s %(levelname)s %(message)s')
@@ -40,6 +40,7 @@ async def lifespan(app: FastAPI):
     threading.Thread(target=scanner, name='costs-scanner', daemon=True).start()
     threading.Thread(target=sources.loop, name='sources-collector', daemon=True).start()
     threading.Thread(target=catalog.loop, name='catalog-check', daemon=True).start()
+    threading.Thread(target=hostwatch.loop, name='host-watch', daemon=True).start()
     async with mcp.session_manager.run():
         yield
     db.close()

@@ -5,7 +5,7 @@ import shutil
 
 import httpx
 
-from . import config, costs, db, logs, n8n
+from . import config, costs, db, hostwatch, logs, n8n
 
 log = logging.getLogger('studio.services')
 
@@ -44,6 +44,10 @@ def server_status() -> dict:
     if _k_ready():
         b = db.q1("SELECT count(*)::int AS n FROM k_episodes WHERE status IN ('recording', 'rendering') AND updated_at > now() - interval '2 hours'")
         s['montage_busy'] = bool(b and b['n']) or bool(s.get('worker_jobs'))
+    try:
+        s['host'] = hostwatch.summary()
+    except Exception as e:  # сторож не должен ронять обзор
+        log.warning('сторож сервера: %s', e)
     return s
 
 

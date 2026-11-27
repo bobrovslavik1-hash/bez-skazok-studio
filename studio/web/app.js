@@ -188,6 +188,16 @@
     const last = errs[0];
     const s = d.server || {};
     const ok = (v, yes, no, warn) => v === true ? badge(yes, 'ok') : v === false ? badge(no, 'err') : badge(warn || 'нет данных', 'warn');
+    // сторож сервера: запас памяти, процессора и диска (пики — за неделю замеров)
+    const h = s.host || {}, wk = h.week || {}, vd = h.verdict || {};
+    const nf = (x) => x == null ? '—' : String(x).replace('.', ',');
+    const pc = (x) => x == null ? '—' : Math.round(x) + '%';
+    const hostRows = h.ram_total_gb || h.cpu_cores ? `
+            <dt>Запас</dt><dd>${badge({ tight: 'тесно', watch: 'следим' }[vd.level] || 'есть', { tight: 'err', watch: 'warn' }[vd.level] || 'ok')}
+              ${vd.text && vd.text !== 'запас есть' ? `<span class="muted"> ${esc(vd.text)}</span>` : ''}</dd>
+            <dt>Память</dt><dd class="num">${h.ram_total_gb ? `занято ${pc(h.ram_used_pct)} из ${nf(h.ram_total_gb)} ГБ${wk.ram_max != null ? ` · пик ${pc(wk.ram_max)}` : ''}${h.swap_used_gb ? ` · своп ${nf(h.swap_used_gb)} ГБ` : ''}` : '—'}</dd>
+            <dt>Процессор</dt><dd class="num">${h.cpu_cores ? `${h.cpu_cores} ${plural(h.cpu_cores, 'ядро', 'ядра', 'ядер')} · сейчас ${pc(h.cpu_pct)}${wk.cpu_max != null ? ` · пик ${pc(wk.cpu_max)}` : ''}` : '—'}</dd>` : '';
+    const diskLeft = h.disk_days_left != null ? ` · хватит на ~${h.disk_days_left} ${plural(h.disk_days_left, 'день', 'дня', 'дней')}` : '';
     view.innerHTML = head('Обзор', 'Что происходит с конвейером прямо сейчас', reportBtn) + `
       <div class="grid kpis">
         ${balance}
@@ -203,8 +213,8 @@
           <div class="card-b flush">${epRows(d.episodes || [])}</div></div>
         <div class="grid">
           <div class="card"><div class="card-h"><h2>Сервер</h2></div><div class="card-b"><dl class="kv">
-            <dt>Монтаж</dt><dd>${s.montage_busy ? badge('занят', 'warn live') : badge('свободен', 'ok')}</dd>
-            <dt>Диск</dt><dd class="num">${s.disk_free_gb != null ? s.disk_free_gb + ' ГБ свободно из ' + s.disk_total_gb : '—'}</dd>
+            <dt>Монтаж</dt><dd>${s.montage_busy ? badge('занят', 'warn live') : badge('свободен', 'ok')}</dd>${hostRows}
+            <dt>Диск</dt><dd class="num">${s.disk_free_gb != null ? nf(s.disk_free_gb) + ' ГБ свободно из ' + nf(s.disk_total_gb) + diskLeft : '—'}</dd>
             <dt>n8n</dt><dd>${ok(s.n8n, 'на связи', 'нет связи', 'нет ключа API')}</dd>
             <dt>Сервер монтажа</dt><dd>${ok(s.worker, 'на связи', 'нет связи')}</dd>
             <dt>Ключ Google</dt><dd>${ok(s.google_key, 'есть', 'нет')}</dd>
