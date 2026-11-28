@@ -15,7 +15,7 @@ from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from starlette.concurrency import run_in_threadpool
 
-from . import apify, auth, catalog, config, connections, content, costs, db, directions, feeds, hostwatch, logs, meta, montage, n8n, prompter, pubtexts, remote, schedule, services, sources, telegram, vault
+from . import apify, auth, catalog, config, connections, content, costs, db, directions, feeds, hostwatch, logs, look, meta, montage, n8n, prompter, pubtexts, remote, schedule, services, sources, telegram, vault
 from .mcp_server import mcp
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s %(name)s %(levelname)s %(message)s')
@@ -159,6 +159,42 @@ def me(user=Depends(auth.current_user)):
 @app.get('/api/overview')
 def overview(user=Depends(auth.current_user)):
     return services.overview()
+
+
+@app.get('/api/appearance')
+def appearance(user=Depends(auth.current_user)):
+    """Обои и кот-талисман — общие для всех устройств кабинета (тема — своя на каждом устройстве)."""
+    return look.get(user['workspace_id'])
+
+
+@app.put('/api/appearance')
+async def appearance_save(request: Request, user=Depends(auth.current_user)):
+    auth.require_write(request)
+    b = await _body(request)
+    return _src_errors(look.save, {k: b[k] for k in ('wall', 'mascot') if k in b}, user['login'], user['workspace_id'])
+
+
+@app.post('/api/appearance/photo')
+async def appearance_photo_save(request: Request, user=Depends(auth.current_user)):
+    """Своё фото для обоев: {"data": "<base64 JPEG/PNG/WebP>"} до 3 МБ (браузер сам уменьшает и пересохраняет в JPEG)."""
+    auth.require_write(request)
+    b = await _body(request)
+    return await run_in_threadpool(_src_errors, look.save_photo, b.get('data'), user['login'], user['workspace_id'])
+
+
+@app.delete('/api/appearance/photo')
+async def appearance_photo_drop(request: Request, user=Depends(auth.current_user)):
+    auth.require_write(request)
+    return _src_errors(look.drop_photo, user['login'], user['workspace_id'])
+
+
+@app.get('/api/appearance/photo')
+def appearance_photo(user=Depends(auth.current_user)):
+    p = look.photo(user['workspace_id'])
+    if not p:
+        raise HTTPException(404, 'Своего фото нет')
+    # адрес с ?v=<время загрузки> — новое фото получает новый адрес, старое можно держать в кэше браузера
+    return Response(p[1], media_type=p[0], headers={'Cache-Control': 'private, max-age=31536000, immutable', 'X-Content-Type-Options': 'nosniff'})
 
 
 @app.get('/api/nav')

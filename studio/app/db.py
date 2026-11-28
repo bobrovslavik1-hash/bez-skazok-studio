@@ -68,6 +68,10 @@ ALTER TABLE studio_directions ADD COLUMN IF NOT EXISTS hashtags TEXT;
 ALTER TABLE studio_directions ADD COLUMN IF NOT EXISTS delivery TEXT NOT NULL DEFAULT 'opinion';
 -- окна публикации по расписанию («19:00,21:30»): кнопка «В ближайшее окно» у выпуска, как очередь у Buffer
 ALTER TABLE studio_directions ADD COLUMN IF NOT EXISTS publish_slots TEXT NOT NULL DEFAULT '';
+-- оформление: своя картинка для обоев (фото кота и т. п.). В копию базы не входит — это не данные конвейера
+CREATE TABLE IF NOT EXISTS studio_assets (
+  workspace_id TEXT NOT NULL DEFAULT 'main', key TEXT NOT NULL, mime TEXT NOT NULL, data BYTEA NOT NULL, size INT NOT NULL,
+  updated_at TIMESTAMPTZ DEFAULT now(), updated_by TEXT, PRIMARY KEY (workspace_id, key));
 -- учёт выпуска: база сама отмечает время каждой смены статуса (meta.timeline) — кто бы его ни менял: n8n или Студия.
 -- Таблицу k_episodes создаёт конвейер; если её ещё нет или прав не хватает — пропускаем, Студия запускается всё равно.
 DO $$

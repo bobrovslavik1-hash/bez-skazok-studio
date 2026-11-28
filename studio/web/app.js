@@ -62,6 +62,14 @@
     cal: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3.5" y="5" width="17" height="15.5" rx="2.5"/><path d="M8 3v4M16 3v4M3.5 10h17M12 13.5v3l2 1"/></svg>',
     clock: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="8.5"/><path d="M12 7.5V12l3 2"/></svg>',
     phone: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="6.5" y="2.5" width="11" height="19" rx="2.5"/><path d="M10.5 18.5h3"/></svg>',
+    palette: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3a9 9 0 1 0 0 18c1.4 0 2-1 1.6-2.1-.5-1.3.2-2.4 1.6-2.4H17a4 4 0 0 0 4-4c0-5-4-9.5-9-9.5z"/><circle cx="7.5" cy="11" r="1.2" fill="currentColor"/><circle cx="10.5" cy="7" r="1.2" fill="currentColor"/><circle cx="15.5" cy="7.5" r="1.2" fill="currentColor"/></svg>',
+    upload: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M12 16V4M7 8.5l5-5 5 5M5 20h14"/></svg>',
+  };
+  // коты Студии — свои рисунки: рыжий талисман сидит в меню, спит там, где пусто, выглядывает на входе
+  const CAT = {
+    sit: '<svg viewBox="0 0 120 120"> <path class="tail" d="M84 104c22-2 30-22 18-38" fill="none" stroke="#ea7f22" stroke-width="10" stroke-linecap="round"/> <path d="M32 116c-4-26 8-48 28-48s32 22 28 48z" fill="#ff9a3d"/> <path d="M46 116c-1-18 5-30 14-30s15 12 14 30z" fill="#fff4e8"/> <path d="M40 76c4 4 4 10 2 14M80 76c-4 4-4 10-2 14" stroke="#ea7f22" stroke-width="3.2" stroke-linecap="round" fill="none"/> <ellipse cx="49" cy="115" rx="9" ry="5.5" fill="#fff4e8"/><ellipse cx="71" cy="115" rx="9" ry="5.5" fill="#fff4e8"/> <path d="M26 40c-1-12 1-26 6-32 7 4 14 10 18 16 6-2 14-2 20 0 4-6 11-12 18-16 5 6 7 20 6 32 3 8 2 17-3 23-7 9-17 13-31 13S36 72 29 63c-5-6-6-15-3-23z" fill="#ff9a3d"/> <path d="M33 26c0-6 1-11 3-14 4 3 8 7 10 10zM87 26c0-6-1-11-3-14-4 3-8 7-10 10z" fill="#ffb3c1"/> <path d="M60 20v9M52 22l2 7M68 22l-2 7" stroke="#ea7f22" stroke-width="3.2" stroke-linecap="round"/> <path d="M27 46c4 0 8 1 11 3M93 46c-4 0-8 1-11 3" stroke="#ea7f22" stroke-width="3" stroke-linecap="round"/> <ellipse cx="60" cy="58" rx="15" ry="11" fill="#fff4e8"/> <g class="eyes"><ellipse cx="46" cy="45" rx="5.2" ry="6.4" fill="#2b2018"/><ellipse cx="74" cy="45" rx="5.2" ry="6.4" fill="#2b2018"/> <circle cx="48" cy="42.6" r="2" fill="#fff"/><circle cx="76" cy="42.6" r="2" fill="#fff"/></g> <path d="M55.5 53.5h9l-4.5 4.2z" fill="#ff7d95"/> <path d="M60 57.6c-1 4-5 5.6-8 3.4M60 57.6c1 4 5 5.6 8 3.4" fill="none" stroke="#2b2018" stroke-width="1.7" stroke-linecap="round"/> <path d="M43 57h-15M43 61l-14 4M77 57h15M77 61l14 4" stroke="#2b2018" stroke-width="1.2" stroke-linecap="round" opacity=".55"/> <ellipse cx="40" cy="54" rx="4" ry="2.4" fill="#ff8fa6" opacity=".55"/><ellipse cx="80" cy="54" rx="4" ry="2.4" fill="#ff8fa6" opacity=".55"/> </svg>',
+    sleep: '<svg viewBox="0 0 150 84"> <ellipse cx="76" cy="78" rx="62" ry="5" fill="#000" opacity=".08"/> <path d="M128 70c12-3 17-13 10-23" fill="none" stroke="#ea7f22" stroke-width="9" stroke-linecap="round"/> <path d="M22 66c-4-20 10-36 38-39 24-3 50 1 64 12 10 8 12 19 6 30-3 6-9 8-16 8H34c-6 0-11-4-12-11z" fill="#ff9a3d"/> <path d="M70 34c5 4 5 11 2 16M86 32c5 4 5 11 2 16M102 37c4 4 4 10 1 14" stroke="#ea7f22" stroke-width="3" stroke-linecap="round" fill="none"/> <path d="M12 58c-3-10 0-21 8-27 2-7 5-12 8-15 4 3 7 7 9 11 6-1 11-1 16 1 3-4 7-7 11-9 3 5 4 11 3 17 4 7 4 16-1 22-6 8-16 10-27 10-11 0-22-2-27-10z" fill="#ff9a3d"/> <path d="M24 29c0-4 1-8 3-10 2 2 5 5 6 8zM61 29c0-4-1-8-3-10-2 2-5 4-6 7z" fill="#ffb3c1"/> <path d="M38 16v6M32 18l1.5 5M44 18l-1.5 5" stroke="#ea7f22" stroke-width="2.6" stroke-linecap="round"/> <ellipse cx="38" cy="57" rx="12" ry="8" fill="#fff4e8"/> <path d="M25 46c3 2.4 6.5 2.4 9.5 0M42 46c3 2.4 6.5 2.4 9.5 0" fill="none" stroke="#2b2018" stroke-width="2" stroke-linecap="round"/> <path d="M35 52h6l-3 3z" fill="#ff7d95"/> <ellipse cx="30" cy="74" rx="9" ry="5" fill="#fff4e8"/><ellipse cx="47" cy="75" rx="9" ry="5" fill="#fff4e8"/> <ellipse cx="25" cy="54" rx="3.4" ry="2" fill="#ff8fa6" opacity=".5"/><ellipse cx="51" cy="54" rx="3.4" ry="2" fill="#ff8fa6" opacity=".5"/> <path d="M78 16c3-1 6-1 8 0l-7 7c3-1 6-1 8 0" fill="none" stroke="#9a92c4" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/> <path d="M92 6c2-.6 4-.6 5.6 0l-4.8 4.8c2-.6 4-.6 5.6 0" fill="none" stroke="#9a92c4" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/> </svg>',
+    peek: '<svg viewBox="0 0 120 64"> <path d="M22 64c-3-8-3-18 1-27-1-12 1-25 6-31 7 4 13 9 17 15 9-3 19-3 28 0 4-6 10-11 17-15 5 6 7 19 6 31 4 9 4 19 1 27z" fill="#ff9a3d"/> <path d="M30 22c0-6 1-10 3-13 4 3 7 6 9 9zM90 22c0-6-1-10-3-13-4 3-7 6-9 9z" fill="#ffb3c1"/> <path d="M60 16v8M53 18l2 6M67 18l-2 6" stroke="#ea7f22" stroke-width="3" stroke-linecap="round"/> <ellipse cx="60" cy="52" rx="14" ry="10" fill="#fff4e8"/> <ellipse cx="46" cy="40" rx="5" ry="6.2" fill="#2b2018"/><ellipse cx="74" cy="40" rx="5" ry="6.2" fill="#2b2018"/> <circle cx="48" cy="37.8" r="1.9" fill="#fff"/><circle cx="76" cy="37.8" r="1.9" fill="#fff"/> <path d="M56 48h8l-4 3.8z" fill="#ff7d95"/> <path d="M43 52h-14M77 52h14" stroke="#2b2018" stroke-width="1.1" stroke-linecap="round" opacity=".55"/> </svg>',
   };
 
   const NAV = [
@@ -278,6 +286,7 @@
     clearInterval(state.timer); clearInterval(state.tallyTimer); clearTimeout(state.clockT); clearInterval(state.clockI);
     $('#root').innerHTML = `
       <div class="login"><form class="card" id="lf" autocomplete="on">
+        <div class="login-cat" aria-hidden="true">${CAT.peek}</div>
         <div class="tally-plate" aria-hidden="true">ЭФИР</div>
         <div class="logo" style="padding:0"><div class="mark">${I.play}</div><div><b>Студия</b><span>Без сказок</span></div></div>
         <h1>Вход в студию</h1><p>Пульт конвейера: выпуски, запись, публикация.</p>
@@ -335,10 +344,11 @@
             <div class="sclock-ctl"><button type="button" class="go" data-cc="go">Старт</button><button type="button" data-cc="reset">Сброс</button></div>
           </div>
           <nav class="nav">${nav}</nav>
+          <div class="mascot-spot"><button class="mascot" type="button" data-mascot-btn title="Кот-талисман: нажми — скажет, что ждёт твоего хода" aria-label="Кот-талисман">${CAT.sit}</button>
+            <div class="mascot-say" role="status" aria-live="polite"></div></div>
           <div class="side-foot">
             <div class="who"><span>${esc(state.user.name || state.user.login)}</span><button class="linkbtn" id="logout">Выйти</button></div>
-            <div class="theme-sw" role="group" aria-label="Тема">${[['dark', 'Студия'], ['light', 'День'], ['auto', 'Авто']].map(([k, t]) =>
-              `<button type="button" data-theme-set="${k}" class="${(window.studioTheme ? window.studioTheme.get() : 'dark') === k ? 'on' : ''}">${t}</button>`).join('')}</div>
+            <button class="btn small look-btn" type="button" data-look>${I.palette}Оформление<span class="look-dots" aria-hidden="true"><i></i><i></i><i></i></span></button>
             <div class="faint">версия ${esc(v.commit || 'dev')}</div>
           </div>
         </aside>
@@ -352,6 +362,9 @@
       <nav class="tabbar">${tabs}</nav>`;
     $('#logout').addEventListener('click', async () => { await api('/api/logout', { method: 'POST' }).catch(() => {}); showLogin(); });
     document.querySelectorAll('[data-palette]').forEach(b => b.addEventListener('click', openPalette));
+    document.querySelectorAll('[data-look]').forEach(b => b.addEventListener('click', openLook));
+    const mb = document.querySelector('[data-mascot-btn]');
+    if (mb) mb.addEventListener('click', catSay);
     document.querySelector('[data-more]').addEventListener('click', openMore);
     const cs = document.querySelector('[data-csize]');
     if (cs) cs.addEventListener('click', () => {
@@ -374,6 +387,101 @@
     if (more) more.classList.toggle('on', !TABS.includes(h) && h !== '#/remote' && !h.startsWith('#/prompter') && !h.startsWith('#/episodes'));
   }
 
+  // ---------- оформление: тема (на этом устройстве), обои и кот (на всех устройствах) ----------
+  const LOOK_THEMES = [['dark', 'Студия', 'тёмная, чёткая'], ['light', 'День', 'светлая, чистая'], ['cats', 'Котики', 'весёлая, с рыжим котом'], ['auto', 'Авто', 'как в системе']];
+  const LOOK_WALLS = [['cats', 'Коты'], ['paws', 'Лапки'], ['photo', 'Своё фото'], ['none', 'Без обоев']];
+  function applyLook(a) {
+    state.look = a;
+    if (window.studioLook) window.studioLook.apply(a);
+  }
+  async function loadLook() {
+    try { applyLook(await api('/api/appearance', { noAuthRedirect: true })); } catch (e) { /* остаются последние известные */ }
+  }
+  // своё фото: браузер уменьшает до 1920 точек и пересохраняет в JPEG — так из снимка уходят и данные камеры, и место съёмки
+  function shrinkPhoto(file) {
+    return new Promise((ok, fail) => {
+      if (!/^image\//.test(file.type || '')) { fail(new Error('Нужна картинка: JPEG, PNG или WebP')); return; }
+      const url = URL.createObjectURL(file);
+      const img = new Image();
+      img.onload = () => {
+        const k = Math.min(1, 1920 / Math.max(img.naturalWidth, img.naturalHeight));
+        const c = document.createElement('canvas');
+        c.width = Math.max(1, Math.round(img.naturalWidth * k)); c.height = Math.max(1, Math.round(img.naturalHeight * k));
+        c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
+        URL.revokeObjectURL(url);
+        ok(c.toDataURL('image/jpeg', 0.84));
+      };
+      img.onerror = () => { URL.revokeObjectURL(url); fail(new Error('Не получилось открыть картинку')); };
+      img.src = url;
+    });
+  }
+  function openLook() {
+    const a = state.look || { wall: 'cats', mascot: true };
+    const cur = window.studioTheme ? window.studioTheme.get() : 'dark';
+    const d = drawer('Оформление', 'Тема — на этом устройстве. Обои и кот — на всех твоих устройствах', `
+      <div class="section-t" style="margin-top:0">Тема</div>
+      <div class="look-themes">${LOOK_THEMES.map(([k, t, sub]) => `<button type="button" class="look-th${cur === k ? ' on' : ''}" data-theme-set="${k}">
+        <span class="look-prev" data-prev="${k}"><i></i><i></i><i></i></span><b>${t}</b><span>${sub}</span></button>`).join('')}</div>
+      <div class="section-t">Обои</div>
+      <div class="look-walls">${LOOK_WALLS.map(([k, t]) => `<button type="button" class="look-wl${a.wall === k ? ' on' : ''}" data-wall-set="${k}"
+        ${k === 'photo' && !a.photo_v ? 'data-need-photo="1"' : ''}><span class="look-wprev" data-wprev="${k}"${k === 'photo' && a.photo_v
+          ? ` style="background-image:url('/api/appearance/photo?v=${encodeURIComponent(a.photo_v)}')"` : ''}></span><b>${t}</b></button>`).join('')}</div>
+      <div class="look-photo"><label class="btn">${I.upload}${a.photo_v ? 'Заменить фото' : 'Загрузить своё фото'}<input type="file" accept="image/*" hidden data-photo-in></label>
+        ${a.photo_v ? `<button class="btn" data-photo-del>${I.trash}Убрать фото</button>` : ''}
+        <span class="faint">например, твоего кота. Картинку Студия уменьшит и сохранит без данных камеры</span></div>
+      <div class="section-t">Кот в меню</div>
+      <label class="look-row"><span class="switch"><input type="checkbox" data-mascot-set${a.mascot !== false ? ' checked' : ''}><i></i></span>
+        <span>Рыжий кот внизу меню: моргает, а если нажать — скажет, что ждёт твоего хода</span></label>`);
+    d.querySelectorAll('[data-theme-set]').forEach(b => b.addEventListener('click', () => {
+      if (window.studioTheme) window.studioTheme.set(b.dataset.themeSet);
+      d.querySelectorAll('[data-theme-set]').forEach(x => x.classList.toggle('on', x === b));
+    }));
+    const saveLook = async body => {
+      try { applyLook(await api('/api/appearance', { method: 'PUT', body })); return true; }
+      catch (e) { toast(e.message, true); return false; }
+    };
+    d.querySelectorAll('[data-wall-set]').forEach(b => b.addEventListener('click', async () => {
+      if (b.dataset.needPhoto) { d.querySelector('[data-photo-in]').click(); return; }
+      if (await saveLook({ wall: b.dataset.wallSet })) d.querySelectorAll('[data-wall-set]').forEach(x => x.classList.toggle('on', x === b));
+    }));
+    d.querySelector('[data-photo-in]').addEventListener('change', async ev => {
+      const f = ev.target.files && ev.target.files[0];
+      if (!f) return;
+      try {
+        const data = await shrinkPhoto(f);
+        applyLook(await api('/api/appearance/photo', { body: { data } }));
+        toast('Фото стоит на обоях');
+        openLook();
+      } catch (e) { toast(e.message, true); }
+    });
+    const del = d.querySelector('[data-photo-del]');
+    if (del) del.addEventListener('click', async () => {
+      if (!confirm('Убрать своё фото с обоев?')) return;
+      try { applyLook(await api('/api/appearance/photo', { method: 'DELETE' })); toast('Фото убрано'); openLook(); }
+      catch (e) { toast(e.message, true); }
+    });
+    d.querySelector('[data-mascot-set]').addEventListener('change', ev => saveLook({ mascot: ev.target.checked }));
+  }
+
+  // кот говорит, что ждёт твоего хода (или просто мурлычет)
+  function catSay() {
+    const box = document.querySelector('.mascot-say');
+    if (!box) return;
+    const c = state.counts || {};
+    const n = (x, a, b, cc) => x + ' ' + plural(x, a, b, cc);
+    const idle = ['Мур. Всё спокойно', 'Мур-мур. Я слежу за монтажом', 'Мяу! Хороший день для выпуска', 'Мур… Конвейер тихо урчит'];
+    const t = c.review ? `Мяу! ${n(c.review, 'выпуск ждёт', 'выпуска ждут', 'выпусков ждут')} проверки`
+      : c.script ? `Мур! ${n(c.script, 'сценарий ждёт', 'сценария ждут', 'сценариев ждут')} записи`
+      : state.errors24 ? `Фыр! В журнале ${n(state.errors24, 'ошибка', 'ошибки', 'ошибок')}`
+      : c.montage ? 'Мур, монтаж идёт — подожду превью' : idle[Math.floor(Math.random() * idle.length)];
+    box.textContent = t;
+    box.classList.add('on');
+    const cat = document.querySelector('.mascot');
+    if (cat) { cat.classList.remove('hop'); void cat.offsetWidth; cat.classList.add('hop'); }
+    clearTimeout(catSay.t);
+    catSay.t = setTimeout(() => box.classList.remove('on'), 4200);
+  }
+
   // «Ещё» на телефоне: остальные разделы, тема и выход — листом снизу
   function openMore() {
     closeDrawer();
@@ -384,17 +492,13 @@
     s.className = 'sheet';
     s.innerHTML = `<div class="sheet-grip"></div><div class="sheet-grid">${rest.map(([h, t, ic]) => `<a href="${h}" data-nav="${h}">${ic}<span>${t}</span></a>`).join('')}
       <a href="#/remote">${I.phone}<span>Пульт суфлёра</span></a></div>
-      <div class="sheet-foot"><div class="theme-sw" role="group" aria-label="Тема">${[['dark', 'Студия'], ['light', 'День'], ['auto', 'Авто']].map(([k, t]) =>
-        `<button type="button" data-theme-set="${k}" class="${(window.studioTheme ? window.studioTheme.get() : 'dark') === k ? 'on' : ''}">${t}</button>`).join('')}</div>
+      <div class="sheet-foot"><button class="btn look-btn" type="button" data-look-m>${I.palette}Оформление</button>
         <button class="linkbtn" data-out>Выйти</button></div>`;
     document.body.append(shade, s);
     const close = () => { shade.remove(); s.remove(); };
     shade.addEventListener('click', close);
     s.querySelectorAll('a').forEach(a => a.addEventListener('click', close));
-    s.querySelectorAll('[data-theme-set]').forEach(b => b.addEventListener('click', () => {
-      if (window.studioTheme) window.studioTheme.set(b.dataset.themeSet);
-      document.querySelectorAll('[data-theme-set]').forEach(x => x.classList.toggle('on', x.dataset.themeSet === b.dataset.themeSet));
-    }));
+    s.querySelector('[data-look-m]').addEventListener('click', () => { close(); openLook(); });
     s.querySelector('[data-out]').addEventListener('click', async () => { close(); await api('/api/logout', { method: 'POST' }).catch(() => {}); showLogin(); });
     markNav();
   }
@@ -410,6 +514,7 @@
       { t: 'Новое направление', k: 'действие', ic: I.plus, go: '#/directions/edit?new=1' },
       { t: 'Свой текст в суфлёр', k: 'действие', ic: I.plus, go: '#/prompter/edit' },
       { t: 'Пульт суфлёра с телефона', k: 'действие', ic: I.phone, go: '#/remote' },
+      { t: 'Оформление: тема, обои, кот', k: 'действие', ic: I.palette, fn: openLook },
       ...((state.navEps || []).filter(e => !['superseded', 'cancelled'].includes(e.status)).slice(0, 12).map(e => ({
         t: e.title || e.id, k: (e.status_label || e.status || '').toLowerCase(), ic: e.kind === 'script' ? I.prompter : I.film, ep: e.id }))),
     ];
@@ -436,7 +541,7 @@
       const a = found[i];
       if (!a) return;
       close();
-      if (a.ep) openEpisode(a.ep); else location.hash = a.go;
+      if (a.ep) openEpisode(a.ep); else if (a.fn) a.fn(); else location.hash = a.go;
     };
     q.addEventListener('input', () => { cur = 0; draw(); });
     q.addEventListener('keydown', ev => {
@@ -457,7 +562,10 @@
     else if (ev.key === '/' && !typing && !ev.ctrlKey && !ev.metaKey && !ev.altKey) { ev.preventDefault(); openPalette(); }
   });
 
-  const head = (title, sub, actions = '') => `<div class="head"><div><h1>${title}</h1>${sub ? `<p>${sub}</p>` : ''}</div><div class="actions">${actions}</div></div>`;
+  const head = (title, sub, actions = '') => {
+    const n = NAV.find(x => x[1] === title);
+    return `<div class="head"><div><h1>${n ? `<span class="h-ic" data-sec="${n[0]}">${n[2]}</span>` : ''}${title}</h1>${sub ? `<p>${sub}</p>` : ''}</div><div class="actions">${actions}</div></div>`;
+  };
   const badge = (text, tone = '') => `<span class="badge ${tone}">${esc(text)}</span>`;
   const loading = () => `<div class="card"><div class="card-b"><div class="skel" style="width:40%"></div><br><div class="skel"></div><br><div class="skel" style="width:70%"></div></div></div>`;
   const failBox = msg => `<div class="card"><div class="empty"><b>Не получилось загрузить</b>${esc(msg)}</div></div>`;
@@ -705,6 +813,7 @@
   function epSlate(e) {
     if (e.kind === 'script' && e.minutes) return `<span class="ep-slate"><span class="led" data-ghost="88:88">${pad2(e.minutes)}:00</span><span>сценарий</span></span>`;
     const t = EP_BUSY.includes(e.status) ? 'идёт монтаж' : e.kind === 'script' ? 'сценарий' : e.status === 'error' ? 'ошибка монтажа' : 'кадра нет';
+    if (t === 'кадра нет') return `<span class="ep-slate cat">${CAT.sleep}<span>${t}</span></span>`;
     return `<span class="ep-slate icon">${e.kind === 'script' ? I.prompter : I.film}<span>${t}</span></span>`;
   }
   // кадр не загрузился (файл уже убран с сервера) — показываем заставку
@@ -3178,6 +3287,9 @@
     view.innerHTML = head('Настройки', 'Доступы, версия и безопасность') + `
       <div class="grid two">
         <div class="grid">
+          <div class="card look-card"><div class="card-h"><h2>Оформление</h2></div><div class="card-b">
+            <p style="margin-top:0">Тема (Студия, День, Котики), обои с котами или своё фото, кот в меню.</p>
+            <button class="btn primary" data-look-s>${I.palette}Настроить</button></div></div>
           <div class="card"><div class="card-h"><h2>Доступ Claude (MCP)</h2>${d.mcp_enabled ? badge('включён', 'ok') : badge('выключен', 'warn')}</div><div class="card-b">
             <p style="margin-top:0">Через этот вход Claude сам смотрит журнал, ошибки, выпуски и расходы. Секреты в ответах скрыты, каждое действие пишется в журнал действий.</p>
             <ol class="steps"><li>Адрес с токеном показал установщик на сервере. Показать ещё раз (в окне сервера): <span class="mono">cd /opt/n8n &amp;&amp; docker compose exec -T studio python -m app.cli mcp-url</span></li>
@@ -3203,6 +3315,7 @@
         </div>
       </div>`;
     drawApify($('#svc-apify'), (d.services || {}).apify || {}, d.role === 'owner');
+    view.querySelector('[data-look-s]').addEventListener('click', openLook);
     $('#pwsave').addEventListener('click', async () => {
       try { await api('/api/password', { body: { current: $('#pw0').value, new: $('#pw1').value } }); toast('Пароль изменён'); $('#pw0').value = $('#pw1').value = ''; }
       catch (e) { toast(e.message, true); }
@@ -3301,6 +3414,7 @@
     } catch (e) { showLogin(); return; }
     shell();
     route();
+    loadLook();
   }
 
   window.addEventListener('hashchange', route);
