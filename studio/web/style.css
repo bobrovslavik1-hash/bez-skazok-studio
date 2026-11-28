@@ -779,3 +779,249 @@ details.conn-more[open] summary { margin-bottom: 8px; }
 /* журнал: разобранная ошибка — тише */
 .rows li.acked .title, .rows li.acked .errtxt { opacity: .6; }
 .rows .side-val [data-ack] { margin-left: 6px; }
+
+/* ===================== Аппаратная 2 (28.11): конвейер на виду =====================
+   Одно громкое место — «Линия» на «Обзоре»: станции конвейера с лампами. Остальное тише: меню по группам со счётчиками,
+   карточки выпусков с кадром и цветной меткой направления (как изолента на пульте), одна янтарная кнопка — главное действие. */
+
+/* --- меню: группы, счётчики, поиск --- */
+.side { gap: 12px; padding-top: 16px; }
+.side-top { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.side-top .btn.icon { width: 32px; height: 32px; color: var(--muted); }
+.nav-g { margin: 12px 12px 4px; font-size: 11.5px; font-weight: 600; color: var(--faint); letter-spacing: .02em; }
+.nav-g:first-child { margin-top: 2px; }
+.nav a { padding: 7px 12px; }
+.nav .count.go, .tabbar .count.go { background: var(--accent-fill); color: var(--accent-ink); }
+
+/* --- часы: по умолчанию одной строкой, «Больше» — круглые с огнями секунд --- */
+.sclock[data-size="small"] { padding: 9px 12px 8px; border-radius: 12px; }
+.sclock[data-size="small"] .sclock-dial { width: auto; height: auto; cursor: default; }
+.sclock[data-size="small"] .sclock-dial svg { display: none; }
+.sclock[data-size="small"] .sclock-read { position: static; display: flex; align-items: baseline; justify-content: center; gap: 8px; }
+.sclock[data-size="small"] .led { font-size: 28px; }
+.sclock[data-size="small"] .led.s { font-size: 15px; }
+.sclock[data-size="small"][data-mode="chrono"] .sclock-dial { cursor: pointer; }
+.sclock[data-size="small"] .sclock-date { margin-top: 4px; }
+.sclock-tabs button[data-csize] { margin-left: 2px; }
+
+/* --- телефон: четыре вкладки + «Ещё» листом снизу --- */
+.tab-more { display: none; }
+@media (max-width: 820px) {
+  .tabbar { overflow-x: visible; justify-content: space-around; }
+  .tabbar a, .tab-more { flex: 1 1 0; min-width: 0; padding: 4px 2px; }
+  .tab-more { display: flex; flex-direction: column; align-items: center; gap: 3px; font-size: 10.5px; color: var(--muted); background: none; border: 0; cursor: pointer; position: relative; }
+  .tab-more svg { width: 22px; height: 22px; }
+  .tab-more.on { color: var(--accent); }
+}
+.sheet { position: fixed; left: 0; right: 0; bottom: 0; z-index: 41; background: var(--panel); border-top: 1px solid var(--line); border-radius: 18px 18px 0 0;
+  padding: 8px 16px calc(18px + env(safe-area-inset-bottom)); box-shadow: 0 -20px 50px rgba(0, 0, 0, .35); animation: rise .18s ease; }
+@keyframes rise { from { transform: translateY(30px); opacity: .5; } }
+.sheet-grip { width: 42px; height: 4px; border-radius: 2px; background: var(--line); margin: 2px auto 12px; }
+.sheet-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+.sheet-grid a { display: grid; justify-items: center; gap: 6px; padding: 14px 6px; border-radius: 12px; background: var(--panel-2); border: 1px solid var(--line-2);
+  color: var(--text); font-size: 12.5px; text-align: center; }
+.sheet-grid a:hover { text-decoration: none; border-color: var(--line); }
+.sheet-grid a.on { border-color: var(--accent-fill); color: var(--accent); }
+.sheet-grid svg { width: 24px; height: 24px; color: var(--muted); }
+.sheet-foot { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-top: 14px; }
+
+/* --- быстрый переход (Ctrl+K) --- */
+.pal-shade { position: fixed; inset: 0; z-index: 70; background: rgba(8, 7, 6, .5); backdrop-filter: blur(2px); animation: fade .12s ease; }
+.pal { position: fixed; z-index: 71; top: 12vh; left: 50%; transform: translateX(-50%); width: min(620px, calc(100vw - 24px)); background: var(--panel);
+  border: 1px solid var(--line); border-radius: 14px; box-shadow: 0 30px 80px rgba(0, 0, 0, .45); overflow: hidden; animation: fade .12s ease; }
+.pal-in { display: flex; align-items: center; gap: 10px; padding: 12px 16px; border-bottom: 1px solid var(--line-2); }
+.pal-in svg { width: 19px; height: 19px; color: var(--muted); flex: none; }
+.pal-q { flex: 1; border: 0; background: none; font-size: 16px; color: var(--text); outline: none; min-width: 0; }
+.pal-list { list-style: none; margin: 0; padding: 6px; max-height: 52vh; overflow: auto; }
+.pal-list li { display: flex; align-items: center; gap: 11px; padding: 9px 10px; border-radius: 9px; cursor: pointer; }
+.pal-list li svg { width: 17px; height: 17px; color: var(--muted); flex: none; }
+.pal-list li.on { background: var(--panel-2); box-shadow: inset 0 0 0 1px var(--line); }
+.pal-list li.on svg { color: var(--accent); }
+.pal-t { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 500; }
+.pal-k { color: var(--faint); font-size: 12px; white-space: nowrap; }
+.pal-none { color: var(--muted); justify-content: center; cursor: default !important; }
+.pal-foot { padding: 8px 16px 10px; font-size: 11.5px; border-top: 1px solid var(--line-2); }
+
+/* --- «Линия»: станции конвейера с лампами --- */
+.line { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 0; margin: 0 0 16px; background: var(--panel); border: 1px solid var(--line);
+  border-radius: var(--radius); box-shadow: inset 0 1px 0 var(--hi); overflow: hidden; }
+.st { position: relative; display: grid; gap: 2px; padding: 14px 18px 15px 20px; color: var(--text); min-width: 0; }
+.st:hover { text-decoration: none; background: var(--panel-2); }
+.st + .st { border-left: 1px solid var(--line-2); }
+/* лента между станциями: шеврон на стыке */
+.st + .st::before { content: ""; position: absolute; left: -7px; top: 50%; width: 12px; height: 12px; margin-top: -6px; transform: rotate(45deg);
+  background: var(--panel); border-top: 1px solid var(--line); border-right: 1px solid var(--line); z-index: 1; }
+.st-top { display: flex; align-items: center; gap: 8px; font-weight: 600; font-size: 13.5px; }
+.st-lamp { width: 10px; height: 10px; border-radius: 50%; background: var(--line); box-shadow: inset 0 0 0 1px rgba(0, 0, 0, .25); flex: none; }
+.st-n { font: 700 40px/1 var(--display); margin-top: 6px; color: var(--faint); }
+.st-h { color: var(--muted); font-size: 12.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.st-you .st-lamp { background: var(--accent-fill); box-shadow: 0 0 calc(10px * var(--glow)) var(--accent-fill); }
+.st-you .st-n { color: var(--accent); }
+.st-you { background: linear-gradient(180deg, color-mix(in srgb, var(--accent-fill) 9%, transparent), transparent 70%); }
+.st-run .st-lamp { background: var(--warn); box-shadow: 0 0 calc(9px * var(--glow)) var(--warn); animation: pulse 1.6s ease-in-out infinite; }
+.st-run .st-n { color: var(--text); }
+.st-done .st-lamp { background: var(--ok); box-shadow: 0 0 calc(9px * var(--glow)) var(--ok); }
+.st-done .st-n { color: var(--ok); }
+.line-sched { display: inline-flex; align-items: center; gap: 8px; margin: -6px 0 16px; padding: 7px 12px; border-radius: 999px; background: var(--info-soft);
+  color: var(--text); font-size: 13px; max-width: 100%; }
+.line-sched svg { width: 16px; height: 16px; color: var(--info); flex: none; }
+.line-sched span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.line-sched:hover { text-decoration: none; filter: brightness(1.08); }
+
+/* --- «Обзор»: дела рядом с «Сейчас в студии» --- */
+.grid.ov-top { grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr); align-items: stretch; margin-bottom: 16px; }
+.ov-top .onair { margin: 0; grid-template-columns: minmax(0, 1fr); gap: 14px; padding: 16px; align-content: start; }
+.ov-top .onair-info h2 { font-size: 24px; margin: 4px 0 6px; }
+.ov-top .onair-next { margin-bottom: 12px; font-size: 13.5px; }
+.ov-top .onair-slate .led { font-size: 40px; }
+.ov-top .card.todo { margin: 0; }
+details.srv > summary { list-style: none; cursor: pointer; }
+details.srv > summary::-webkit-details-marker { display: none; }
+details.srv:not([open]) > summary { border-bottom: 0; }
+.srv-line { display: flex; flex-wrap: wrap; gap: 6px 12px; justify-content: flex-end; }
+.srv-l { display: inline-flex; align-items: center; gap: 6px; font-size: 12.5px; color: var(--muted); white-space: nowrap; }
+.srv-l i { width: 8px; height: 8px; border-radius: 50%; background: var(--faint); }
+.srv-l.ok i { background: var(--ok); box-shadow: 0 0 calc(7px * var(--glow)) var(--ok); }
+.srv-l.err i { background: var(--err); box-shadow: 0 0 calc(7px * var(--glow)) var(--err); }
+.srv-l.warn i { background: var(--warn); }
+.srv-l.err { color: var(--err); }
+
+/* --- карточки выпусков: кадр, метка направления, одна главная кнопка --- */
+.card.ep { padding: 0; gap: 0; overflow: hidden; border-top: 3px solid var(--dc, var(--line)); }
+.ep-pic { position: relative; display: block; width: 100%; aspect-ratio: 16 / 9; padding: 0; border: 0; border-bottom: 1px solid var(--line-2);
+  background: #0d0c0b; cursor: pointer; overflow: hidden; color: inherit; }
+.ep-pic img { display: block; width: 100%; height: 100%; object-fit: cover; transition: transform .25s ease; }
+.ep-pic:hover img { transform: scale(1.025); }
+.ep-slate { position: absolute; inset: 0; display: grid; place-content: center; justify-items: center; gap: 8px; color: #a79f95; font-size: 12.5px; --led: #ffb43e;
+  background: radial-gradient(120% 90% at 50% 0%, #1d1b18, #0d0c0b 70%); }
+.ep-slate .led { font-size: 34px; }
+.ep-st { position: absolute; left: 10px; top: 10px; }
+.ep-st .badge { background: rgba(13, 12, 11, .78); backdrop-filter: blur(4px); }
+.ep-sched { position: absolute; right: 10px; bottom: 10px; display: inline-flex; align-items: center; gap: 6px; padding: 4px 9px; border-radius: 7px;
+  background: rgba(13, 12, 11, .8); color: #dbe6ff; font-size: 12px; font-weight: 600; }
+.ep-sched svg { width: 14px; height: 14px; }
+.card.ep.busy .ep-pic::after { content: ""; position: absolute; left: 0; right: 0; bottom: 0; height: 3px; background: linear-gradient(90deg, transparent, var(--warn), transparent);
+  background-size: 50% 100%; background-repeat: no-repeat; animation: belt 1.6s linear infinite; }
+@keyframes belt { from { background-position: -50% 0; } to { background-position: 150% 0; } }
+.ep-body { display: flex; flex-direction: column; gap: 7px; padding: 13px 16px 14px; flex: 1; }
+.ep-dir { display: flex; align-items: center; gap: 7px; font-size: 12px; color: var(--muted); font-weight: 500; }
+.ep-dir i { width: 9px; height: 9px; border-radius: 2px; background: var(--dc, var(--faint)); flex: none; }
+.card.ep h3 { font-size: 18px; }
+.card.ep .foot { padding-top: 6px; flex-wrap: wrap; }
+.card.ep .foot .btn.primary svg { width: 15px; height: 15px; }
+
+/* --- доска: кадр и метка направления --- */
+.bd-card { border-left: 3px solid var(--dc, transparent); }
+.bd-img { display: block; width: calc(100% + 20px); margin: -10px -10px 8px; aspect-ratio: 16 / 9; object-fit: cover; border-radius: 8px 8px 0 0; }
+.bd-sched { display: inline-flex; align-items: center; gap: 5px; margin-top: 4px; font-size: 12px; color: var(--info); font-weight: 600; }
+.bd-sched svg { width: 13px; height: 13px; }
+
+/* --- выпуск: шаги, где он сейчас --- */
+.stepper { list-style: none; display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 0; margin: 0 0 16px; padding: 0; counter-reset: s; }
+.stepper li { position: relative; display: grid; gap: 2px; padding: 0 6px 0 0; min-width: 0; }
+.stepper li i { position: relative; display: block; height: 4px; border-radius: 2px; background: var(--line); margin-bottom: 7px; }
+.stepper li b { font-size: 12.5px; font-weight: 600; color: var(--faint); }
+.stepper li span { font-size: 11.5px; color: var(--faint); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-height: 16px; }
+.stepper li.done i { background: var(--ok); }
+.stepper li.done b { color: var(--muted); }
+.stepper li.now i { background: var(--accent-fill); box-shadow: 0 0 calc(10px * var(--glow)) var(--accent-fill); }
+.stepper li.now b { color: var(--text); }
+.stepper li.now span { color: var(--accent); }
+.stepper li.err i { background: var(--brand); }
+.stepper li.err b, .stepper li.err span { color: var(--err); }
+
+/* --- публикация по расписанию --- */
+.pub-sched { display: inline-flex; align-items: center; gap: 7px; color: var(--text); }
+.pub-sched svg { width: 16px; height: 16px; color: var(--info); }
+.pub-pick { display: inline-flex; gap: 8px; flex-wrap: wrap; }
+.pub-pick .input { height: 36px; }
+
+/* --- направления --- */
+.grid.dirs { grid-template-columns: repeat(auto-fill, minmax(340px, 1fr)); align-items: start; }
+.card.dir { padding: 0; border-top: 3px solid var(--dc, var(--line)); display: grid; }
+.dir-h { display: flex; align-items: flex-start; gap: 12px; padding: 14px 18px 12px; }
+.dir-h .grow { min-width: 0; flex: 1; }
+.dir-h h3 { margin: 0 0 3px; font: 700 21px/1.12 var(--display); letter-spacing: .005em; }
+.dir-h .faint { font-size: 12.5px; }
+.dir-fold { margin: 0 12px; padding: 12px 12px 11px; border-radius: 10px; background: var(--panel-2); border: 1px solid var(--line-2); }
+.dir-fold-h { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.dir-fold-h > svg { width: 18px; height: 18px; color: var(--accent); }
+.dir-fold-h b { margin-right: auto; }
+.fold-b { margin-top: 9px; font-size: 13px; line-height: 1.45; }
+.fold-st { display: flex; gap: 9px; align-items: flex-start; }
+.fold-st .dot { margin-top: 4px; }
+.fold-st.err b { color: var(--err); }
+.fold-warn { margin-top: 8px; padding: 8px 10px; border-radius: 8px; background: var(--warn-soft); color: var(--warn); font-size: 12.5px; }
+.fold-acct { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-top: 8px; }
+.fold-acct code { padding: 5px 8px; background: var(--field); border: 1px solid var(--line); border-radius: 6px; font-size: 12px; word-break: break-all; }
+.dir-sec { padding: 12px 18px 0; }
+.dir-sec-t { font-size: 12px; color: var(--faint); font-weight: 600; margin-bottom: 6px; }
+.dir-does { margin: 0; padding-left: 18px; font-size: 13px; color: var(--muted); line-height: 1.5; }
+.dir-does li::marker { color: var(--dc, var(--faint)); }
+.dir-pub { display: flex; flex-wrap: wrap; gap: 6px; }
+.dp { display: inline-flex; align-items: center; gap: 6px; height: 26px; padding: 0 9px; border-radius: 7px; border: 1px dashed var(--line); color: var(--faint); font-size: 12px; }
+.dp svg { width: 14px; height: 14px; }
+.dp.on { border-style: solid; color: var(--text); background: var(--field); }
+.dp.on svg { color: var(--accent); }
+.card.dir .foot { display: flex; gap: 8px; padding: 14px 18px 16px; }
+.card.dir.off .dir-h, .card.dir.off .dir-sec { opacity: .6; }
+.card.dir.off { opacity: 1; }
+.grid.tpls { grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); }
+.card.tpl { display: grid; gap: 6px; padding: 16px 18px 18px; color: var(--text); border-top: 3px solid var(--dc, var(--line)); align-content: start; }
+.card.tpl b { font: 700 20px/1.15 var(--display); }
+.card.tpl span { color: var(--muted); font-size: 13px; line-height: 1.5; }
+.card.tpl:hover { text-decoration: none; border-color: var(--faint); background: var(--panel-2); }
+.card.tpl.quiet b { font-size: 17px; }
+
+/* --- подключения: сводка лампами и короче карточки --- */
+.conn-sum { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; margin-bottom: 16px; }
+.cs { display: flex; align-items: center; gap: 10px; padding: 11px 13px; border-radius: var(--radius); background: var(--panel); border: 1px solid var(--line);
+  color: var(--text); text-align: left; cursor: pointer; min-width: 0; }
+.cs:hover { border-color: var(--faint); }
+.cs .grow { display: grid; min-width: 0; flex: 1; }
+.cs .grow span { font-size: 12px; color: var(--muted); }
+.cs.warn .grow span { color: var(--warn); } .cs.err .grow span { color: var(--err); } .cs.ok .grow span { color: var(--ok); }
+details.conn-more2 { margin-top: 14px; border-top: 1px solid var(--line-2); padding-top: 10px; }
+details.conn-more2 > summary { cursor: pointer; color: var(--muted); font-size: 13px; }
+details.conn-more2 .section-t { margin-top: 14px; }
+
+/* --- суфлёр: клавиши --- */
+details.keys > summary { cursor: pointer; color: var(--text); font-weight: 500; }
+.keys-g { display: grid; grid-template-columns: max-content 1fr; gap: 6px 14px; margin-top: 10px; align-items: center; }
+.keys-g span { color: var(--muted); }
+.keys p { margin: 10px 0 0; }
+kbd { display: inline-block; min-width: 22px; padding: 1px 6px; border-radius: 5px; border: 1px solid var(--line); border-bottom-width: 2px; background: var(--field);
+  font: 600 12px/1.6 var(--font); color: var(--text); text-align: center; }
+
+@media (max-width: 1000px) {
+  .grid.ov-top { grid-template-columns: minmax(0, 1fr); }
+  .line { grid-template-columns: repeat(5, minmax(120px, 1fr)); overflow-x: auto; }
+  .conn-sum { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (max-width: 820px) {
+  .line { display: flex; overflow-x: auto; scrollbar-width: none; }
+  .line::-webkit-scrollbar { display: none; }
+  .st { flex: 0 0 132px; padding: 11px 12px 12px 14px; }
+  .st-n { font-size: 32px; }
+  .stepper li b { font-size: 11.5px; }
+  .stepper li span { font-size: 10.5px; }
+  .grid.dirs { grid-template-columns: minmax(0, 1fr); }
+  .srv-line { display: none; }
+}
+@media (prefers-reduced-motion: reduce) { .card.ep.busy .ep-pic::after, .st-run .st-lamp { animation: none; } }
+.card.ep { border-top: 1px solid var(--line); }
+.bd-card { border-left: 0; }
+.bd-card .bd-t::before { content: ""; display: inline-block; width: 8px; height: 8px; border-radius: 2px; background: var(--dc, transparent); margin-right: 7px; vertical-align: 1px; }
+.ep-slate.icon { gap: 10px; }
+.ep-slate.icon svg { width: 34px; height: 34px; color: #6f685f; }
+.grid.kpis.three { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.grid.ov-top { align-items: start; }
+.ov-top .onair-mon { aspect-ratio: 2.2 / 1; }
+.card.dir .foot { align-items: center; }
+.dir-n { margin-left: auto; font-size: 12.5px; }
+.dir-fold-h .btn.icon { width: 30px; }
+@media (max-width: 820px) { .grid.kpis.three { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+.ep-pic.noimg { aspect-ratio: 2.6 / 1; }
+@media (max-width: 820px) { .hide-phone { display: none !important; } .ep-pic.noimg { aspect-ratio: 3.2 / 1; } }
+.ov-top .onair-slate { padding-top: 22px; }
+.ov-top .onair-slate .led { font-size: clamp(26px, 2.9vw, 40px); }

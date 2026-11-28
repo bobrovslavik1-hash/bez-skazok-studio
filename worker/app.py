@@ -389,6 +389,49 @@ async def drive_list(req: Request):
     return await bg(do_drive_list, b.get('folder_id'))
 
 
+def sa_email():
+    try:
+        with open(SA_FILE) as f:
+            return str(json.load(f).get('client_email') or '')
+    except Exception:
+        return ''
+
+
+def do_drive_check(folder):
+    """Для Студии: видит ли монтаж папку направления, сколько в ней видео и подпапок.
+
+    Список детей папки без доступа приходит пустым и без ошибки, поэтому сначала спрашиваем саму папку: 404 — доступа нет.
+    Отдаём и адрес сервисного аккаунта (это не секрет): с ним папкой надо поделиться, если доступа нет."""
+    acct = sa_email()
+    if not str(folder or '').strip():
+        return {'ok': False, 'reason': 'no_folder', 'account': acct}
+    folder = clean(folder, 120)
+    h = {'Authorization': 'Bearer ' + gtoken()}
+    r = requests.get('https://www.googleapis.com/drive/v3/files/' + folder, headers=h, timeout=60,
+                     params={'fields': 'id,name,mimeType,trashed', 'supportsAllDrives': 'true'})
+    if r.status_code in (403, 404):
+        return {'ok': False, 'reason': 'no_access', 'account': acct}
+    r.raise_for_status()
+    meta = r.json()
+    if meta.get('mimeType') != 'application/vnd.google-apps.folder' or meta.get('trashed'):
+        return {'ok': False, 'reason': 'not_folder', 'account': acct, 'name': meta.get('name') or ''}
+    r = requests.get('https://www.googleapis.com/drive/v3/files', headers=h, timeout=60,
+                     params={'q': "'%s' in parents and trashed = false" % folder, 'fields': 'files(id,name,size,mimeType,createdTime)',
+                             'pageSize': 200, 'orderBy': 'createdTime', 'supportsAllDrives': 'true', 'includeItemsFromAllDrives': 'true'})
+    r.raise_for_status()
+    files = r.json().get('files', [])
+    videos = [{'id': x['id'], 'name': x.get('name') or '', 'size': int(x.get('size') or 0), 'created': x.get('createdTime') or ''}
+              for x in files if str(x.get('mimeType') or '').startswith('video/')]
+    folders = [x.get('name') or '' for x in files if x.get('mimeType') == 'application/vnd.google-apps.folder']
+    return {'ok': True, 'name': meta.get('name') or '', 'account': acct, 'videos': videos, 'folders': folders[:20], 'folders_n': len(folders)}
+
+
+@app.post('/drive/check')
+async def drive_check(req: Request):
+    b = await req.json()
+    return await bg(do_drive_check, b.get('folder_id'))
+
+
 def do_drive_fetch(ep, file_id):
     raw = os.path.join(epdir(ep), 'raw.mp4')
     url = 'https://www.googleapis.com/drive/v3/files/%s?alt=media&supportsAllDrives=true' % clean(file_id, 120)

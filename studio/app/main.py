@@ -15,7 +15,7 @@ from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from starlette.concurrency import run_in_threadpool
 
-from . import apify, auth, catalog, config, connections, content, costs, db, directions, feeds, hostwatch, logs, meta, montage, n8n, prompter, pubtexts, remote, services, sources, telegram, vault
+from . import apify, auth, catalog, config, connections, content, costs, db, directions, feeds, hostwatch, logs, meta, montage, n8n, prompter, pubtexts, remote, schedule, services, sources, telegram, vault
 from .mcp_server import mcp
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s %(name)s %(levelname)s %(message)s')
@@ -48,6 +48,7 @@ async def lifespan(app: FastAPI):
     threading.Thread(target=meta.queue_loop, name='meta-queue', daemon=True).start()
     threading.Thread(target=pubtexts.loop, name='pub-texts', daemon=True).start()
     threading.Thread(target=montage.loop, name='montage-table', daemon=True).start()
+    threading.Thread(target=schedule.loop, name='publish-schedule', daemon=True).start()
     async with mcp.session_manager.run():
         yield
     db.close()
@@ -160,6 +161,13 @@ def overview(user=Depends(auth.current_user)):
     return services.overview()
 
 
+@app.get('/api/nav')
+def nav(user=Depends(auth.current_user)):
+    """Счётчики для меню и «Линии» на «Обзоре»: сколько выпусков на каждой станции, сколько ошибок не разобрано, что выйдет по расписанию.
+    Плюс последние выпуски для табло (как /api/episodes?limit=12)."""
+    return {**services.nav_counts(), 'upcoming': schedule.upcoming(5), 'episodes': services.episodes(limit=12)}
+
+
 @app.get('/api/episodes')
 def episodes(kind: str | None = None, limit: int = 50, direction: str | None = None, user=Depends(auth.current_user)):
     return {'episodes': services.episodes(limit=limit, kind=kind, direction=direction or None), 'directions': services.episode_directions()}
@@ -171,6 +179,27 @@ def episode(eid: str, user=Depends(auth.current_user)):
     if not ep:
         raise HTTPException(404, 'Нет такого выпуска')
     return ep
+
+
+@app.get('/api/episodes/{eid}/schedule')
+def episode_schedule(eid: str, user=Depends(auth.current_user)):
+    return _src_errors(schedule.info, eid, user['workspace_id'])
+
+
+@app.post('/api/episodes/{eid}/schedule')
+async def episode_schedule_set(eid: str, request: Request, user=Depends(auth.current_user)):
+    """Опубликовать по расписанию: {"at": "next"} — ближайшее окно направления, или {"at": "2026-11-28T19:00"} — своё время (по времени Студии)."""
+    auth.require_write(request)
+    _owner(user)
+    b = await _body(request)
+    return await run_in_threadpool(_src_errors, schedule.set_at, eid, b.get('at') or 'next', user['login'], user['workspace_id'])
+
+
+@app.delete('/api/episodes/{eid}/schedule')
+async def episode_schedule_cancel(eid: str, request: Request, user=Depends(auth.current_user)):
+    auth.require_write(request)
+    _owner(user)
+    return await run_in_threadpool(_src_errors, schedule.cancel, eid, user['login'], user['workspace_id'])
 
 
 @app.post('/api/episodes/{eid}/action')
@@ -644,6 +673,12 @@ def directions_list(user=Depends(auth.current_user)):
 @app.get('/api/directions/{did}')
 def direction_get(did: str, user=Depends(auth.current_user)):
     return {'direction': _src_errors(directions.get, did, user['workspace_id']), **directions.meta()}
+
+
+@app.get('/api/directions/{did}/folder')
+def direction_folder(did: str, fresh: bool = False, user=Depends(auth.current_user)):
+    """Папка направления на Google Диске: видит ли её монтаж, сколько видео ждут монтажа, нет ли видео в подпапках."""
+    return _src_errors(directions.folder_check, did, user['workspace_id'], fresh)
 
 
 @app.put('/api/directions/{did}')

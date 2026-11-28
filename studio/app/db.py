@@ -66,6 +66,8 @@ ALTER TABLE studio_directions ADD COLUMN IF NOT EXISTS publish_threads TEXT NOT 
 ALTER TABLE studio_directions ADD COLUMN IF NOT EXISTS hashtags TEXT;
 -- подача новостей: opinion — разбор и мнение ведущего (как сейчас), facts — только факты без оценок (эксперимент Alex 28.11)
 ALTER TABLE studio_directions ADD COLUMN IF NOT EXISTS delivery TEXT NOT NULL DEFAULT 'opinion';
+-- окна публикации по расписанию («19:00,21:30»): кнопка «В ближайшее окно» у выпуска, как очередь у Buffer
+ALTER TABLE studio_directions ADD COLUMN IF NOT EXISTS publish_slots TEXT NOT NULL DEFAULT '';
 -- учёт выпуска: база сама отмечает время каждой смены статуса (meta.timeline) — кто бы его ни менял: n8n или Студия.
 -- Таблицу k_episodes создаёт конвейер; если её ещё нет или прав не хватает — пропускаем, Студия запускается всё равно.
 DO $$

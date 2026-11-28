@@ -83,6 +83,12 @@ def _dir_names() -> dict:
         if db.table_exists('studio_directions') else {}
 
 
+def _dir_colors() -> dict:
+    """Акцентный цвет направления — метка выпуска в Студии, как цветная изолента на пульте."""
+    return {r['id']: r['accent_color'] for r in db.q('SELECT id, accent_color FROM studio_directions WHERE workspace_id = %s', (config.WORKSPACE,))} \
+        if db.table_exists('studio_directions') else {}
+
+
 def episodes(limit: int = 30, kind: str | None = None, direction: str | None = None) -> list:
     if not _k_ready():
         return []
@@ -96,7 +102,7 @@ def episodes(limit: int = 30, kind: str | None = None, direction: str | None = N
         args.append(direction)
     where = ('WHERE ' + ' AND '.join(cond)) if cond else ''
     rows = db.q(f"""SELECT e.id, e.direction_id, e.mode, e.minutes, e.topic, e.status, e.preview_url, e.youtube_id, e.created_at, e.updated_at,
-            e.meta->>'script_id' AS script_id,
+            e.meta->>'script_id' AS script_id, e.meta->>'publish_at' AS publish_at,
             coalesce(e.script->>'yt_title', e.script->>'title', s.script->>'yt_title', s.script->>'title') AS title
         FROM k_episodes e LEFT JOIN k_episodes s ON s.id = e.meta->>'script_id'
         {where} ORDER BY e.created_at DESC LIMIT %s""", (*args, max(1, min(int(limit), 200))))
@@ -105,18 +111,65 @@ def episodes(limit: int = 30, kind: str | None = None, direction: str | None = N
     ins = db.q("SELECT episode_id, count(*)::int AS total, count(*) FILTER (WHERE status = 'ok')::int AS ok FROM k_inserts "
                "WHERE episode_id = ANY(%s) GROUP BY 1", (list(ids),)) if ids and db.table_exists('k_inserts') else []
     ins_map = {r['episode_id']: r for r in ins}
-    names = _dir_names()
-    return [dict(_episode_row(r, cost_map, ins_map), direction_name=names.get(r['direction_id']) or r['direction_id'] or '') for r in rows]
+    names, colors = _dir_names(), _dir_colors()
+    return [dict(_episode_row(r, cost_map, ins_map), direction_name=names.get(r['direction_id']) or r['direction_id'] or '',
+                 direction_color=colors.get(r['direction_id']) or '', publish_at=r.get('publish_at')) for r in rows]
 
 
 def episode_directions() -> list:
     """Направления для фильтра на странице «Выпуски»: название и сколько выпусков и сценариев."""
     if not _k_ready():
         return []
-    names = _dir_names()
+    names, colors = _dir_names(), _dir_colors()
     cnt = {r['d']: r['n'] for r in db.q('SELECT direction_id AS d, count(*)::int AS n FROM k_episodes GROUP BY 1')}
     ids = list(names) + [d for d in cnt if d not in names and d]
-    return [{'id': d, 'name': names.get(d) or d, 'n': cnt.get(d, 0)} for d in ids if cnt.get(d)]
+    return [{'id': d, 'name': names.get(d) or d, 'n': cnt.get(d, 0), 'color': colors.get(d) or ''} for d in ids if cnt.get(d)]
+
+
+# ---------- счётчики для меню: где ждут тебя ----------
+STAGES = (  # конвейер по станциям — как доска «По этапам» и «Линия» на «Обзоре»
+    ('script', 'Сценарий', ('script_ready', 'inserts_ready')),
+    ('montage', 'Монтаж', ('recording', 'rendering', 'redo')),
+    ('review', 'Проверка', ('preview_ready', 'partial')),
+    ('publish', 'Публикация', ('publish_requested', 'publishing')),
+    ('aired', 'В эфире', ('published',)),
+)
+_ERR_CACHE = {'at': 0.0, 'n': 0, 'note': ''}
+
+
+def _errors_unacked() -> tuple:
+    import time
+    if time.time() - _ERR_CACHE['at'] < 60:
+        return _ERR_CACHE['n'], _ERR_CACHE['note']
+    try:
+        n, note = sum(1 for e in recent_errors(24) if not e.get('ack')), ''
+    except Exception as e:  # n8n недоступен — меню всё равно рисуем
+        n, note = 0, str(e)[:120]
+    _ERR_CACHE.update(at=time.time(), n=n, note=note)
+    return n, note
+
+
+def nav_counts() -> dict:
+    """Сколько выпусков на каждой станции конвейера (за 3 недели; «В эфире» — за неделю) и сколько ошибок не разобрано."""
+    out = {k: 0 for k, _, _ in STAGES}
+    last = {}
+    if _k_ready():
+        rows = db.q("SELECT status, count(*)::int AS n, max(updated_at) AS last FROM k_episodes "
+                    "WHERE updated_at > now() - interval '21 days' OR status NOT IN ('published', 'superseded', 'cancelled', 'used', 'error') "
+                    "GROUP BY status")
+        aired = db.q1("SELECT count(*)::int AS n FROM k_episodes WHERE status = 'published' AND updated_at > now() - interval '7 days'")
+        for k, _, sts in STAGES:
+            out[k] = sum(r['n'] for r in rows if r['status'] in sts) if k != 'aired' else (aired or {}).get('n', 0)
+            ts = [r['last'] for r in rows if r['status'] in sts and r.get('last')]
+            last[k] = _iso(max(ts)) if ts else None
+        out['error_eps'] = sum(r['n'] for r in rows if r['status'] == 'error')
+        sch = db.q1("SELECT count(*)::int AS n FROM k_episodes WHERE meta ? 'publish_at'")
+        out['scheduled'] = (sch or {}).get('n', 0)
+    n, note = _errors_unacked()
+    out['errors'] = n
+    out['errors_note'] = note
+    out['stages'] = [{'id': k, 'label': t, 'n': out[k], 'last': last.get(k)} for k, t, _ in STAGES]
+    return out
 
 
 # ---------- ошибки конвейера: «разобрано» ----------

@@ -56,6 +56,12 @@
     globe: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c2.5 2.6 3.8 5.6 3.8 9s-1.3 6.4-3.8 9c-2.5-2.6-3.8-5.6-3.8-9S9.5 5.6 12 3z"/></svg>',
     tg: '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M20.7 4.3 2.9 11.2c-1.2.5-1.2 1.2-.2 1.5l4.6 1.4 1.7 5.4c.2.6.4.8.9.8.4 0 .6-.2.9-.4l2.2-2.1 4.6 3.4c.8.5 1.4.2 1.6-.8l3-14.2c.3-1.3-.5-1.9-1.5-1.5zM8.3 13.8l9.4-5.9c.5-.3.9-.1.5.2l-8 7.2-.3 3.3-1.6-4.8z"/></svg>',
     yt: '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M21.6 7.2a2.6 2.6 0 0 0-1.8-1.8C18.2 5 12 5 12 5s-6.2 0-7.8.4a2.6 2.6 0 0 0-1.8 1.8C2 8.8 2 12 2 12s0 3.2.4 4.8a2.6 2.6 0 0 0 1.8 1.8C5.8 19 12 19 12 19s6.2 0 7.8-.4a2.6 2.6 0 0 0 1.8-1.8c.4-1.6.4-4.8.4-4.8s0-3.2-.4-4.8zM10 15.1V8.9l5.2 3.1L10 15.1z"/></svg>',
+    more: '<svg viewBox="0 0 24 24" fill="currentColor"><circle cx="5" cy="12" r="2"/><circle cx="12" cy="12" r="2"/><circle cx="19" cy="12" r="2"/></svg>',
+    search: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="6.5"/><path d="m16 16 4.5 4.5"/></svg>',
+    folder: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7.5A2.5 2.5 0 0 1 5.5 5H9l2 2.5h7.5A2.5 2.5 0 0 1 21 10v7.5a2.5 2.5 0 0 1-2.5 2.5h-13A2.5 2.5 0 0 1 3 17.5v-10z"/><path d="M12 11v5M9.5 13.5 12 16l2.5-2.5"/></svg>',
+    cal: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3.5" y="5" width="17" height="15.5" rx="2.5"/><path d="M8 3v4M16 3v4M3.5 10h17M12 13.5v3l2 1"/></svg>',
+    clock: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="8.5"/><path d="M12 7.5V12l3 2"/></svg>',
+    phone: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="6.5" y="2.5" width="11" height="19" rx="2.5"/><path d="M10.5 18.5h3"/></svg>',
   };
 
   const NAV = [
@@ -117,7 +123,7 @@
   const RUN_TONE = { success: ['ok', 'Успешно'], error: ['err', 'Ошибка'], crashed: ['err', 'Сбой'], running: ['warn live', 'Идёт'],
     waiting: ['warn', 'Ждёт'], new: ['warn', 'В очереди'], canceled: ['', 'Отменён'] };
 
-  const state = { user: null, version: null, errors24: 0, timer: null, now: { state: 'idle', ep: null }, tallyTimer: null, clockT: null, clockI: null };
+  const state = { user: null, version: null, errors24: 0, counts: {}, navEps: [], timer: null, now: { state: 'idle', ep: null }, tallyTimer: null, clockT: null, clockI: null };
 
   // ---------- связь с сервером ----------
   async function api(path, opts = {}) {
@@ -171,7 +177,15 @@
   async function refreshTally(list) {
     let eps = list;
     if (!eps) {
-      try { eps = (await api('/api/episodes?limit=12', { noAuthRedirect: true })).episodes; } catch (e) { return; }
+      // счётчики меню, «Линия» и табло — одним запросом раз в минуту
+      try {
+        const n = await api('/api/nav', { noAuthRedirect: true });
+        eps = n.episodes || [];
+        state.counts = n;
+        state.navEps = eps;
+        state.errors24 = n.errors || 0;
+        markNav();
+      } catch (e) { return; }
     }
     state.now = pickNow(eps);
     const b = $('#tally');
@@ -286,20 +300,38 @@
   }
 
   // ---------- каркас ----------
+  // меню по группам: каждый день — выпуски и суфлёр; настройка — направления, источники, площадки; служебное — журнал, расходы
+  const NAV_GROUPS = [['Работа', ['#/', '#/episodes', '#/prompter']], ['Настройка', ['#/directions', '#/sources', '#/connections']],
+    ['Служебное', ['#/logs', '#/costs', '#/settings']]];
+  // счётчик у пункта меню — где ждут тебя: выпуски на проверке, сценарии на запись (янтарь), неразобранные ошибки (красный)
+  const NAV_CNT = { '#/episodes': 'review', '#/prompter': 'script', '#/logs': 'errors' };
+  const NAV_CNT_T = { review: 'ждут проверки', script: 'ждут записи', errors: 'ошибки не разобраны' };
+  const TABS = ['#/', '#/episodes', '#/prompter', '#/logs'];  // на телефоне четыре вкладки, остальное — в «Ещё»
+  const navItem = h => {
+    const [, t, ic] = NAV.find(n => n[0] === h);
+    const c = NAV_CNT[h];
+    return `<a href="${h}" data-nav="${h}">${ic}<span>${t}</span>${c ? `<i class="count hidden ${c === 'errors' ? '' : 'go'}" data-cnt="${c}"
+      ${c === 'errors' ? 'data-errcount' : ''} title="${NAV_CNT_T[c]}"></i>` : ''}</a>`;
+  };
+  const CLK = 'studio.clock.big';
   function shell() {
-    const nav = NAV.map(([h, t, ic]) => `<a href="${h}" data-nav="${h}">${ic}<span>${t}</span>${h === '#/logs' ? '<i class="count hidden" data-errcount></i>' : ''}</a>`).join('');
-    const tabs = NAV.filter(n => n[0] !== '#/sources').map(([h, t, ic]) => `<a href="${h}" data-nav="${h}">${ic}<span>${t}</span>${h === '#/logs' ? '<i class="count hidden" data-errcount></i>' : ''}</a>`).join('');
+    const nav = NAV_GROUPS.map(([g, hs]) => `<div class="nav-g">${g}</div>${hs.map(navItem).join('')}`).join('');
+    const tabs = TABS.map(navItem).join('') + `<button type="button" class="tab-more" data-more>${I.more}<span>Ещё</span></button>`;
     const v = state.version || {};
+    let big = false;
+    try { big = localStorage.getItem(CLK) === '1'; } catch (e) { /* по умолчанию маленькие */ }
     $('#root').innerHTML = `
       <div class="app">
         <aside class="side">
-          <div class="logo"><div class="mark">${I.play}</div><div><b>Студия</b><span>Без сказок</span></div></div>
+          <div class="side-top"><div class="logo"><div class="mark">${I.play}</div><div><b>Студия</b><span>Без сказок</span></div></div>
+            <button class="btn small icon" type="button" data-palette title="Быстрый переход: Ctrl+K" aria-label="Быстрый переход">${I.search}</button></div>
           <button class="tally" id="tally" type="button" data-state="idle" title="Открыть выпуск, который сейчас в работе">${tallyInner(state.now)}</button>
-          <div class="sclock" id="sclock" data-mode="${sclk.mode}">
+          <div class="sclock" id="sclock" data-mode="${sclk.mode}" data-size="${big ? 'big' : 'small'}">
             <div class="sclock-dial" id="sdial">${clockSVG()}<div class="sclock-read">
               <span class="led" id="shm" data-ghost="88:88">--:--</span><span class="led s" id="ss" data-ghost="88">--</span></div></div>
             <div class="sclock-date" id="sdate"></div>
-            <div class="sclock-tabs"><button type="button" data-cm="time">Время</button><button type="button" data-cm="chrono">Хронометр</button></div>
+            <div class="sclock-tabs"><button type="button" data-cm="time">Время</button><button type="button" data-cm="chrono">Хронометр</button>
+              <button type="button" data-csize title="Большие или маленькие часы">${big ? 'Меньше' : 'Больше'}</button></div>
             <div class="sclock-ctl"><button type="button" class="go" data-cc="go">Старт</button><button type="button" data-cc="reset">Сброс</button></div>
           </div>
           <nav class="nav">${nav}</nav>
@@ -313,22 +345,117 @@
         <div class="main">
           <header class="top"><div class="logo"><div class="mark">${I.play}</div><div><b>Студия</b></div></div>
             <button class="mclock" id="mclock" type="button" title="Открыть выпуск, который сейчас в работе"><span class="mlamp" id="mlamp"></span><span class="led" id="mhm" data-ghost="88:88:88">--:--:--</span></button>
-            <a class="btn small" href="#/sources" aria-label="Источники">${I.rss}</a></header>
+            <button class="btn small icon" type="button" data-palette aria-label="Быстрый переход">${I.search}</button></header>
           <div class="wrap" id="view"></div>
         </div>
       </div>
       <nav class="tabbar">${tabs}</nav>`;
     $('#logout').addEventListener('click', async () => { await api('/api/logout', { method: 'POST' }).catch(() => {}); showLogin(); });
+    document.querySelectorAll('[data-palette]').forEach(b => b.addEventListener('click', openPalette));
+    document.querySelector('[data-more]').addEventListener('click', openMore);
+    const cs = document.querySelector('[data-csize]');
+    if (cs) cs.addEventListener('click', () => {
+      const box = $('#sclock');
+      const nb = box.dataset.size !== 'big';
+      box.dataset.size = nb ? 'big' : 'small';
+      cs.textContent = nb ? 'Меньше' : 'Больше';
+      try { localStorage.setItem(CLK, nb ? '1' : '0'); } catch (e) { /* не запомним */ }
+      litUpTo = -1; tick();
+    });
     bindStudio();
   }
 
   function markNav() {
     const h = '#' + (location.hash.replace(/^#/, '').split('?')[0] || '/');
     document.querySelectorAll('[data-nav]').forEach(a => a.classList.toggle('on', a.dataset.nav === h || (a.dataset.nav !== '#/' && h.startsWith(a.dataset.nav + '/'))));
-    document.querySelectorAll('[data-errcount]').forEach(el => { el.textContent = state.errors24; el.classList.toggle('hidden', !state.errors24); });
-    const cur = document.querySelector('.tabbar a.on');  // на телефоне панель листается — держим открытый раздел на виду
-    if (cur && cur.scrollIntoView) cur.scrollIntoView({ inline: 'nearest', block: 'nearest' });
+    const cnt = Object.assign({}, state.counts || {}, { errors: state.errors24 });
+    document.querySelectorAll('[data-cnt]').forEach(el => { const n = cnt[el.dataset.cnt] || 0; el.textContent = n; el.classList.toggle('hidden', !n); });
+    const more = document.querySelector('[data-more]');
+    if (more) more.classList.toggle('on', !TABS.includes(h) && h !== '#/remote' && !h.startsWith('#/prompter') && !h.startsWith('#/episodes'));
   }
+
+  // «Ещё» на телефоне: остальные разделы, тема и выход — листом снизу
+  function openMore() {
+    closeDrawer();
+    const rest = NAV.filter(n => !TABS.includes(n[0]));
+    const shade = document.createElement('div');
+    shade.className = 'shade';
+    const s = document.createElement('div');
+    s.className = 'sheet';
+    s.innerHTML = `<div class="sheet-grip"></div><div class="sheet-grid">${rest.map(([h, t, ic]) => `<a href="${h}" data-nav="${h}">${ic}<span>${t}</span></a>`).join('')}
+      <a href="#/remote">${I.phone}<span>Пульт суфлёра</span></a></div>
+      <div class="sheet-foot"><div class="theme-sw" role="group" aria-label="Тема">${[['dark', 'Студия'], ['light', 'День'], ['auto', 'Авто']].map(([k, t]) =>
+        `<button type="button" data-theme-set="${k}" class="${(window.studioTheme ? window.studioTheme.get() : 'dark') === k ? 'on' : ''}">${t}</button>`).join('')}</div>
+        <button class="linkbtn" data-out>Выйти</button></div>`;
+    document.body.append(shade, s);
+    const close = () => { shade.remove(); s.remove(); };
+    shade.addEventListener('click', close);
+    s.querySelectorAll('a').forEach(a => a.addEventListener('click', close));
+    s.querySelectorAll('[data-theme-set]').forEach(b => b.addEventListener('click', () => {
+      if (window.studioTheme) window.studioTheme.set(b.dataset.themeSet);
+      document.querySelectorAll('[data-theme-set]').forEach(x => x.classList.toggle('on', x.dataset.themeSet === b.dataset.themeSet));
+    }));
+    s.querySelector('[data-out]').addEventListener('click', async () => { close(); await api('/api/logout', { method: 'POST' }).catch(() => {}); showLogin(); });
+    markNav();
+  }
+
+  // быстрый переход (Ctrl+K или «/»), как командная строка у Linear и Superdesk: разделы, действия и свежие выпуски — набери пару букв
+  function openPalette() {
+    closeDrawer();
+    document.querySelectorAll('.pal,.pal-shade').forEach(e => e.remove());
+    const acts = [
+      ...NAV.map(([h, t, ic]) => ({ t, k: 'раздел', ic, go: h })),
+      { t: 'Выпуски по этапам', k: 'вид', ic: I.film, go: '#/episodes?view=board' },
+      { t: 'Ошибки в журнале', k: 'вид', ic: I.log, go: '#/logs?view=errors' },
+      { t: 'Новое направление', k: 'действие', ic: I.plus, go: '#/directions/edit?new=1' },
+      { t: 'Свой текст в суфлёр', k: 'действие', ic: I.plus, go: '#/prompter/edit' },
+      { t: 'Пульт суфлёра с телефона', k: 'действие', ic: I.phone, go: '#/remote' },
+      ...((state.navEps || []).filter(e => !['superseded', 'cancelled'].includes(e.status)).slice(0, 12).map(e => ({
+        t: e.title || e.id, k: (e.status_label || e.status || '').toLowerCase(), ic: e.kind === 'script' ? I.prompter : I.film, ep: e.id }))),
+    ];
+    const shade = document.createElement('div');
+    shade.className = 'pal-shade';
+    const p = document.createElement('div');
+    p.className = 'pal';
+    p.setAttribute('role', 'dialog');
+    p.innerHTML = `<div class="pal-in">${I.search}<input class="pal-q" placeholder="Куда перейти? Выпуск, раздел, действие…" aria-label="Поиск"></div><ul class="pal-list"></ul>
+      <div class="pal-foot faint">↑ ↓ — выбрать · Enter — открыть · Esc — закрыть</div>`;
+    document.body.append(shade, p);
+    const q = p.querySelector('.pal-q'), ul = p.querySelector('.pal-list');
+    let found = [], cur = 0;
+    const norm = s => String(s || '').toLowerCase().replace(/ё/g, 'е');
+    const draw = () => {
+      const w = norm(q.value).split(/\s+/).filter(Boolean);
+      found = acts.filter(a => w.every(x => norm(a.t + ' ' + a.k).includes(x))).slice(0, 12);
+      cur = Math.min(cur, Math.max(0, found.length - 1));
+      ul.innerHTML = found.length ? found.map((a, i) => `<li class="${i === cur ? 'on' : ''}" data-i="${i}">${a.ic}<span class="pal-t">${esc(a.t)}</span><span class="pal-k">${esc(a.k)}</span></li>`).join('')
+        : '<li class="pal-none">Ничего не нашлось</li>';
+    };
+    const close = () => { shade.remove(); p.remove(); };
+    const pick = i => {
+      const a = found[i];
+      if (!a) return;
+      close();
+      if (a.ep) openEpisode(a.ep); else location.hash = a.go;
+    };
+    q.addEventListener('input', () => { cur = 0; draw(); });
+    q.addEventListener('keydown', ev => {
+      if (ev.key === 'ArrowDown') { ev.preventDefault(); cur = Math.min(found.length - 1, cur + 1); draw(); }
+      else if (ev.key === 'ArrowUp') { ev.preventDefault(); cur = Math.max(0, cur - 1); draw(); }
+      else if (ev.key === 'Enter') { ev.preventDefault(); pick(cur); }
+      else if (ev.key === 'Escape') { ev.preventDefault(); close(); }
+    });
+    ul.addEventListener('click', ev => { const li = ev.target.closest('[data-i]'); if (li) pick(Number(li.dataset.i)); });
+    shade.addEventListener('click', close);
+    draw();
+    q.focus();
+  }
+  document.addEventListener('keydown', ev => {
+    if (!state.user || document.querySelector('.pp') || document.querySelector('.pal')) return;
+    const typing = ev.target.closest && ev.target.closest('input,textarea,select,[contenteditable]');
+    if ((ev.key === 'k' || ev.key === 'K' || ev.key === 'л' || ev.key === 'Л') && (ev.ctrlKey || ev.metaKey)) { ev.preventDefault(); openPalette(); }
+    else if (ev.key === '/' && !typing && !ev.ctrlKey && !ev.metaKey && !ev.altKey) { ev.preventDefault(); openPalette(); }
+  });
 
   const head = (title, sub, actions = '') => `<div class="head"><div><h1>${title}</h1>${sub ? `<p>${sub}</p>` : ''}</div><div class="actions">${actions}</div></div>`;
   const badge = (text, tone = '') => `<span class="badge ${tone}">${esc(text)}</span>`;
@@ -419,10 +546,35 @@
         : `<div class="empty"><b>Дел нет</b>Новых выпусков на проверку нет, ошибок нет. Конвейер ждёт новостей.</div>`}</div></div>`;
   }
 
+  // «Линия» на «Обзоре»: конвейер по станциям, как в аппаратной. Янтарь — ждут тебя, мигает — работает машина, зелёный — вышло.
+  const LINE = {
+    script: { you: true, hint: n => n ? 'ждут записи' : 'сценариев нет', go: '#/prompter' },
+    montage: { machine: true, hint: n => n ? 'сервер собирает' : 'монтаж свободен', go: '#/episodes?view=board' },
+    review: { you: true, hint: n => n ? 'посмотри и реши' : 'проверять нечего', go: '#/episodes?view=board' },
+    publish: { machine: true, hint: n => n ? 'уходит на площадки' : 'очередь пуста', go: '#/episodes?view=board' },
+    aired: { done: true, hint: () => 'за неделю', go: '#/episodes?view=board' },
+  };
+  function lineHTML(n) {
+    const st = (n && n.stages) || [];
+    if (!st.length) return '';
+    const up = (n.upcoming || [])[0];
+    return `<section class="line" aria-label="Конвейер по станциям">${st.map(s => {
+      const L = LINE[s.id] || { hint: () => '', go: '#/episodes' };
+      const tone = !s.n ? 'idle' : L.you ? 'you' : L.machine ? 'run' : 'done';
+      return `<a class="st st-${tone}" href="${L.go}" data-st="${s.id}"><span class="st-top"><span class="st-lamp"></span><span class="st-t">${esc(s.label)}</span></span>
+        <span class="st-n num">${s.n}</span><span class="st-h">${esc(L.hint(s.n))}</span></a>`;
+    }).join('')}</section>
+    ${up ? `<a class="line-sched" href="#/episodes?view=board">${I.cal}<span>По расписанию: «${esc(up.title)}» — ${esc(up.at_text)}${n.scheduled > 1 ? ` · и ещё ${n.scheduled - 1}` : ''}</span></a>` : ''}`;
+  }
+
   async function pageOverview(view) {
-    view.innerHTML = head('Обзор', 'Что происходит с конвейером прямо сейчас', reportBtn) + loading();
-    let d;
-    try { d = await api('/api/overview'); } catch (e) { view.innerHTML = head('Обзор', '', reportBtn) + failBox(e.message); return; }
+    const repOv = reportBtn.replace('class="btn"', 'class="btn hide-phone"');  // на телефоне отчёт — в «Журнале»
+    view.innerHTML = head('Обзор', 'Что происходит с конвейером прямо сейчас', repOv) + loading();
+    let d, nv = null;
+    try {
+      [d, nv] = await Promise.all([api('/api/overview'), api('/api/nav').catch(() => null)]);
+    } catch (e) { view.innerHTML = head('Обзор', '', reportBtn) + failBox(e.message); return; }
+    if (nv) { state.counts = nv; state.navEps = nv.episodes || []; }
     state.errors24 = (d.errors_24h || []).filter(e => !e.ack).length;
     markNav();
     const b = d.balance || {};
@@ -451,13 +603,16 @@
             <dt>Процессор</dt><dd class="num">${h.cpu_cores ? `${h.cpu_cores} ${plural(h.cpu_cores, 'ядро', 'ядра', 'ядер')} · сейчас ${pc(h.cpu_pct)}${wk.cpu_max != null ? ` · пик ${pc(wk.cpu_max)}` : ''}` : '—'}</dd>` : '';
     const diskLeft = h.disk_days_left != null ? ` · хватит на ~${h.disk_days_left} ${plural(h.disk_days_left, 'день', 'дня', 'дней')}` : '';
     refreshTally(d.episodes || []);
-    view.innerHTML = head('Обзор', 'Что происходит с конвейером прямо сейчас', reportBtn) + onairHTML(d.episodes || []) + todoHTML(d.episodes || [], errs, b) + `
-      <div class="grid kpis">
+    // сервер одной строкой лампочек; подробности — по нажатию
+    const lamp = (v, t) => `<span class="srv-l ${v === true ? 'ok' : v === false ? 'err' : 'warn'}"><i></i>${t}</span>`;
+    const srvLine = [lamp(s.montage_busy ? null : true, s.montage_busy ? 'монтаж занят' : 'монтаж свободен'), lamp(s.n8n, 'n8n'),
+      lamp(s.worker, 'сервер монтажа'), lamp(s.google_key, 'ключ Google'), lamp(vd.level === 'tight' ? false : vd.level === 'watch' ? null : true, 'запас')].join('');
+    view.innerHTML = head('Обзор', 'Что происходит с конвейером прямо сейчас', repOv) + lineHTML(nv) +
+      `<div class="grid ov-top">${todoHTML(d.episodes || [], errs, b)}${onairHTML(d.episodes || [])}</div>` + `
+      <div class="grid kpis three">
         ${balance}
         <div class="kpi card"><div class="label">Расходы за 30 дней</div><div class="value num">${money(c.d30)}</div>
           <div class="sub">сегодня ${money(c.today)} · за 7 дней ${money(c.d7)}</div></div>
-        <div class="kpi card"><div class="label">Ждут записи</div><div class="value num">${d.waiting_scripts ?? '—'}</div>
-          <div class="sub">${d.waiting_scripts ? 'сценарии готовы, вставки собраны' : 'готовых сценариев нет'}</div></div>
         <div class="kpi card ${errs.length ? 'bad' : 'good'}"><div class="label">Ошибки за сутки</div><div class="value num">${d.errors_note ? '—' : errs.length}</div>
           <div class="sub">${d.errors_note ? esc(d.errors_note) : last ? esc(last.workflow) + ' · ' + when(last.started_at) : 'всё спокойно'}${acked ? ` · ещё ${acked} разобрано` : ''}</div></div>
       </div>
@@ -465,14 +620,14 @@
         <div class="card"><div class="card-h"><h2>Последние выпуски</h2><a href="#/episodes">Все</a></div>
           <div class="card-b flush">${epRows(d.episodes || [])}</div></div>
         <div class="grid">
-          <div class="card"><div class="card-h"><h2>Сервер</h2></div><div class="card-b"><dl class="kv">
+          <details class="card srv"><summary class="card-h"><h2>Сервер</h2><span class="srv-line">${srvLine}</span></summary><div class="card-b"><dl class="kv">
             <dt>Монтаж</dt><dd>${s.montage_busy ? badge('занят', 'warn live') : badge('свободен', 'ok')}</dd>${hostRows}
             <dt>Диск</dt><dd class="num">${s.disk_free_gb != null ? nf(s.disk_free_gb) + ' ГБ свободно из ' + nf(s.disk_total_gb) + diskLeft : '—'}</dd>
             <dt>n8n</dt><dd>${ok(s.n8n, 'на связи', 'нет связи', 'нет ключа API')}</dd>
             <dt>Сервер монтажа</dt><dd>${ok(s.worker, 'на связи', 'нет связи')}</dd>
             <dt>Ключ Google</dt><dd>${ok(s.google_key, 'есть', 'нет')}</dd>
             <dt>Версия Студии</dt><dd class="mono">${esc((d.version || {}).commit || 'dev')}</dd>
-          </dl></div></div>
+          </dl></div></details>
           <div class="card"><div class="card-h"><h2>Ошибки</h2><a href="#/logs?view=errors">Журнал</a></div>
             <div class="card-b flush">${errs.length ? `<ul class="rows">${errs.slice(0, 4).map(r => runRow(r)).join('')}</ul>`
               : `<div class="empty"><b>Ошибок нет</b>за последние 24 часа</div>`}</div></div>
@@ -521,11 +676,60 @@
     const next = ['script_ready', 'inserts_ready'].includes(e.status) ? `<a class="btn small primary" href="#/prompter/view?s=${encodeURIComponent(e.id)}">Суфлёр</a>`
       : ['preview_ready', 'partial'].includes(e.status) ? `<button class="btn small primary">Проверить</button>`  // клик дойдёт до карточки
       : e.youtube_url ? `<a class="btn small" href="${esc(e.youtube_url)}" target="_blank" rel="noopener">YouTube</a>` : '';
-    return `<div class="bd-card${EP_BUSY.includes(e.status) ? ' busy' : ''}" data-ep="${esc(e.id)}">
+    const th = thumbOf(e);
+    return `<div class="bd-card${EP_BUSY.includes(e.status) ? ' busy' : ''}" data-ep="${esc(e.id)}" style="--dc:${esc(e.direction_color || 'transparent')}">
+      ${th && ['preview_ready', 'partial', 'publish_requested', 'publishing'].includes(e.status) ? `<img class="bd-img" src="${esc(th)}" alt="" loading="lazy">` : ''}
       <div class="bd-t">${esc(e.title || e.id)}</div>
+      ${e.publish_at ? `<div class="bd-sched">${I.cal}${esc(schedText(e.publish_at))}</div>` : ''}
       <div class="bd-m">${many && e.direction_name ? `<span>${esc(e.direction_name)}</span>` : ''}<span>${when(e.updated_at || e.created_at)}</span>
         ${EP_BUSY.includes(e.status) ? `<span class="bd-live">${esc(e.status_label)}</span>` : ''}</div>
       ${next ? `<div class="bd-f">${next}</div>` : ''}</div>`;
+  }
+
+  // время по расписанию: «сегодня в 19:00», «завтра в 09:30», «05.12 в 19:00» — по времени Студии
+  const fHM = new Intl.DateTimeFormat('ru-RU', { timeZone: TZ, hour: '2-digit', minute: '2-digit' });
+  function schedText(iso) {
+    if (!iso) return '';
+    const d = new Date(iso), day = fYMD.format(d), today = fYMD.format(new Date()), tmr = fYMD.format(new Date(Date.now() + 864e5));
+    return (day === today ? 'сегодня' : day === tmr ? 'завтра' : fDay.format(d)) + ' в ' + fHM.format(d);
+  }
+  const thumbOf = e => e.preview_url && /\/final\.mp4(\?|$)/.test(e.preview_url) ? e.preview_url.replace(/final\.mp4(\?.*)?$/, 'thumb.jpg') : '';
+  // главное действие выпуска — одна янтарная кнопка: записать, проверить, посмотреть на YouTube
+  function epNext(e, small = true) {
+    const sz = small ? ' small' : '';
+    if (['script_ready', 'inserts_ready'].includes(e.status)) return `<a class="btn${sz} primary" href="#/prompter/view?s=${encodeURIComponent(e.id)}">${I.prompter}Записать</a>`;
+    if (['preview_ready', 'partial'].includes(e.status)) return `<button class="btn${sz} primary" data-ep="${esc(e.id)}">Проверить</button>`;
+    if (e.youtube_url) return `<a class="btn${sz}" href="${esc(e.youtube_url)}" target="_blank" rel="noopener">${I.yt}YouTube</a>`;
+    return '';
+  }
+  function epSlate(e) {
+    if (e.kind === 'script' && e.minutes) return `<span class="ep-slate"><span class="led" data-ghost="88:88">${pad2(e.minutes)}:00</span><span>сценарий</span></span>`;
+    const t = EP_BUSY.includes(e.status) ? 'идёт монтаж' : e.kind === 'script' ? 'сценарий' : e.status === 'error' ? 'ошибка монтажа' : 'кадра нет';
+    return `<span class="ep-slate icon">${e.kind === 'script' ? I.prompter : I.film}<span>${t}</span></span>`;
+  }
+  // кадр не загрузился (файл уже убран с сервера) — показываем заставку
+  function fixThumbs(root) {
+    root.querySelectorAll('.ep-pic img, .bd-img').forEach(img => img.addEventListener('error', () => {
+      const pic = img.closest('.ep-pic');
+      if (pic) { const e = (state.lastEps || []).find(x => x.id === pic.dataset.ep); pic.classList.add('noimg'); img.outerHTML = epSlate(e || { kind: 'recording', status: '' }); }
+      else img.remove();
+    }, { once: true }));
+  }
+  function epCard(e) {
+    const th = thumbOf(e);
+    const slate = epSlate(e);
+    return `<div class="card ep${EP_BUSY.includes(e.status) ? ' busy' : ''}" style="--dc:${esc(e.direction_color || 'var(--faint)')}">
+      <button class="ep-pic${th ? '' : ' noimg'}" type="button" data-ep="${esc(e.id)}" aria-label="Открыть выпуск">${th ? `<img src="${esc(th)}" alt="" loading="lazy">` : slate}
+        <span class="ep-st">${badge(e.status_label || e.status, EP_TONE[e.status] || '')}</span>
+        ${e.publish_at ? `<span class="ep-sched">${I.cal}${esc(schedText(e.publish_at))}</span>` : ''}</button>
+      <div class="ep-body">
+        ${e.direction_name ? `<div class="ep-dir"><i></i>${esc(e.direction_name)}</div>` : ''}
+        <h3>${esc(e.title)}</h3>
+        <div class="meta">${epMeta(e)}</div>
+        <div class="foot">${epNext(e)}
+          <button class="btn small" data-ep="${esc(e.id)}">Подробнее</button>
+          ${EP_BUSY.includes(e.status) ? '' : `<button class="btn small icon ep-del" data-del="${esc(e.id)}" title="Удалить" aria-label="Удалить">${I.trash}</button>`}</div>
+      </div></div>`;
   }
 
   async function pageEpisodes(view, params) {
@@ -560,16 +764,11 @@
       const rest = list.filter(e => !BOARD.some(c => c.st.includes(e.status))).length;
       body = `<div class="board">${cols}</div>${rest ? `<div class="faint" style="margin-top:10px;font-size:12.5px">Не на доске: ${rest} — заменённые, отменённые и записанные сценарии. Они есть в виде «Списком».</div>` : ''}`;
     } else {
-      body = `<div class="grid eps">${list.map(e => `<div class="card ep"><div class="tags">${epTags(e)}</div><h3>${esc(e.title)}</h3>
-        <div class="meta">${epMeta(e)}</div>
-        <div class="foot">
-          ${e.preview_url ? `<a class="btn small primary" href="${esc(e.preview_url)}" target="_blank" rel="noopener">Смотреть</a>` : ''}
-          ${e.youtube_url ? `<a class="btn small" href="${esc(e.youtube_url)}" target="_blank" rel="noopener">YouTube</a>` : ''}
-          ${e.kind === 'script' ? `<a class="btn small" href="#/prompter/view?s=${encodeURIComponent(e.id)}">Суфлёр</a>` : ''}
-          <button class="btn small" data-ep="${esc(e.id)}">Подробнее</button>
-          ${EP_BUSY.includes(e.status) ? '' : `<button class="btn small icon ep-del" data-del="${esc(e.id)}" title="Удалить" aria-label="Удалить">${I.trash}</button>`}</div></div>`).join('')}</div>`;
+      body = `<div class="grid eps">${list.map(epCard).join('')}</div>`;
     }
     view.lastElementChild.outerHTML = chips + body;
+    state.lastEps = list;
+    fixThumbs(view);
     bindEps(view);
     view.querySelectorAll('[data-del]').forEach(b => b.addEventListener('click', async () => {
       const e = list.find(x => x.id === b.dataset.del);
@@ -601,7 +800,16 @@
     if (pd.youtube && pd.youtube.url) ytFoot = `<span class="dot ok"></span><a href="${esc(pd.youtube.url)}" target="_blank" rel="noopener">Выпуск на YouTube</a>
       <span class="faint">если доступ ограниченный — открой его в YouTube Studio</span>`;
     else if (e.status === 'publish_requested' || e.status === 'publishing') ytFoot = `<span class="faint">Загружается на YouTube — итог придёт в Telegram…</span>`;
-    else if ((e.actions || []).includes('publish')) ytFoot = `<button class="btn primary" data-pubto="youtube">Опубликовать на YouTube</button><span class="faint">выпуск и шортсы, доступ — как в направлении</span>`;
+    else if ((e.actions || []).includes('publish')) {
+      const sch = e.schedule || {};
+      if (sch.at) ytFoot = `<span class="pub-sched">${I.cal}Выйдет <b>${esc(schedText(sch.at))}</b></span>
+        <button class="btn" data-sched-off>Отменить расписание</button><button class="btn" data-pubto="youtube">Опубликовать сейчас</button>`;
+      else ytFoot = `<button class="btn primary" data-pubto="youtube">Опубликовать на YouTube</button>
+        ${sch.next ? `<button class="btn" data-sched="next" title="Окна публикации задаются в «Направлениях»">${I.cal}В окно: ${esc(schedText(sch.next))}</button>` : ''}
+        <button class="btn" data-sched-pick>${I.clock}${sch.next ? 'Другое время' : 'По расписанию'}</button>
+        <span class="pub-pick hidden"><input class="input" type="datetime-local" data-sched-at><button class="btn primary" data-sched-go>Запланировать</button></span>
+        <span class="faint">выпуск и шортсы, доступ — как в направлении</span>`;
+    }
     else ytFoot = `<span class="faint">${p.video_ready ? 'Опубликовать можно, когда выпуск ждёт проверки' : 'Кнопка появится после монтажа'}</span>`;
     const ytCard = card('youtube', 'YouTube · выпуск',
       pubFld('youtube.title', 'Заголовок', yt.title, { lim: L.yt_title }) +
@@ -750,6 +958,38 @@
         openEpisode(id);
       } catch (err) { toast(err.message, true); b.disabled = false; if (pl === 'telegram') openEpisode(id); }
     }));
+    const sched = async (body, btn) => {
+      if (btn) btn.disabled = true;
+      try {
+        if (root.dataset.dirty) await save();
+        const r = body ? await api(base + '/schedule', { body }) : await api(base + '/schedule', { method: 'DELETE' });
+        toast(body ? 'Запланировано: выйдет ' + schedText(r.at) + ' — итог придёт в Telegram' : 'Расписание снято');
+        openEpisode(id);
+      } catch (err) { toast(err.message, true); if (btn) btn.disabled = false; }
+    };
+    const sNext = root.querySelector('[data-sched="next"]');
+    if (sNext) sNext.addEventListener('click', () => { if (confirm('Опубликовать на YouTube по расписанию — ' + sNext.textContent.replace('В окно: ', '') + '?\nДо этого времени можно отменить.')) sched({ at: 'next' }, sNext); });
+    const sPick = root.querySelector('[data-sched-pick]');
+    if (sPick) sPick.addEventListener('click', () => {
+      const box = root.querySelector('.pub-pick');
+      box.classList.toggle('hidden');
+      const inp = box.querySelector('[data-sched-at]');
+      if (!inp.value) {  // по умолчанию — через час, ровно по минутам; время — как на часах Студии
+        const d = new Date(Date.now() + 3600e3);
+        const p = Object.fromEntries(new Intl.DateTimeFormat('en-CA', { timeZone: TZ, year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' })
+          .formatToParts(d).map(x => [x.type, x.value]));
+        inp.value = `${p.year}-${p.month}-${p.day}T${p.hour}:${p.minute}`;
+      }
+      inp.focus();
+    });
+    const sGo = root.querySelector('[data-sched-go]');
+    if (sGo) sGo.addEventListener('click', () => {
+      const v = root.querySelector('[data-sched-at]').value;
+      if (!v) { toast('Выбери дату и время', true); return; }
+      if (confirm('Опубликовать на YouTube ' + v.replace('T', ' в ') + ' (по времени Студии)?\nДо этого времени можно отменить.')) sched({ at: v }, sGo);
+    });
+    const sOff = root.querySelector('[data-sched-off]');
+    if (sOff) sOff.addEventListener('click', () => sched(null, sOff));
     root.querySelectorAll('[data-tgshort]').forEach(b => b.addEventListener('click', async () => {
       if (!confirm(`Отправить шортс «${b.dataset.tgtitle}» в Telegram-канал? Он выйдет сразу — его увидят подписчики.`)) return;
       b.disabled = true;
@@ -1044,10 +1284,41 @@
     }
   }
 
+  // где выпуск сейчас: Сценарий → Запись → Монтаж → Проверка → Эфир (время — из учёта этапов в базе)
+  const STEPS = [['Сценарий', ['script_ready', 'inserts_ready']], ['Запись', ['recording']], ['Монтаж', ['preview_ready', 'partial']],
+    ['Проверка', ['publish_requested']], ['Эфир', ['published']]];
+  function stepperHTML(e) {
+    const st = e.status;
+    if (['superseded', 'cancelled'].includes(st)) return '';
+    const seen = {};
+    ((e.report || {}).steps || []).forEach(x => { if (!seen[x.status]) seen[x.status] = x.at; });
+    const isScript = e.kind === 'script';
+    let cur;
+    if (isScript) cur = st === 'used' ? 2 : 1;
+    else if (['recording', 'rendering', 'redo'].includes(st)) cur = 2;
+    else if (['preview_ready', 'partial'].includes(st)) cur = 3;
+    else if (['publish_requested', 'publishing'].includes(st)) cur = 4;
+    else if (st === 'published') cur = 5;
+    else if (st === 'error') cur = seen.publish_requested ? 4 : 2;
+    else cur = 2;
+    const hint = { 1: 'ждёт записи', 2: isScript ? 'записан' : 'сервер собирает', 3: 'посмотри и реши', 4: st === 'error' ? 'не вышло' : 'уходит на площадки' };
+    return `<ol class="stepper">${STEPS.map(([t, codes], i) => {
+      const at = codes.map(c => seen[c]).find(Boolean);
+      let cls = i < cur ? 'done' : i === cur ? 'now' : '';
+      if (i === cur && st === 'error') cls = 'err';
+      if (isScript && i >= 2) cls = '';
+      const sub = i === 0 && !isScript && !e.script_id ? 'своё видео' : at && cls === 'done' ? dt(at) : cls === 'now' || cls === 'err' ? (hint[i] || '') : '';
+      return `<li class="${cls}"><i></i><b>${t}</b><span>${esc(sub)}</span></li>`;
+    }).join('')}</ol>`;
+  }
+
   async function openEpisode(id) {
     const d0 = drawer('Выпуск', esc(id), loading());
     let e;
     try { e = await api('/api/episodes/' + encodeURIComponent(id)); } catch (err) { d0.querySelector('.d-b').innerHTML = failBox(err.message); return; }
+    if (['preview_ready', 'partial'].includes(e.status)) e.schedule = await api('/api/episodes/' + encodeURIComponent(id) + '/schedule').catch(() => null);
+    const hd = d0.querySelector('.d-h h2');
+    if (hd && e.title) { hd.textContent = e.title; hd.nextElementSibling && (hd.nextElementSibling.textContent = (e.direction_name ? e.direction_name + ' · ' : '') + id); }
     const sc = e.script;
     const fails = (e.inserts || []).filter(i => i.status !== 'ok');
     const v = e.video;
@@ -1065,6 +1336,7 @@
       ...(v.missed || []).map(x => `<li><span class="dot err"></span><div class="grow"><div class="title">Вставка ${esc(x.marker)} не встала</div>
         <div class="meta">${esc(x.why)}</div></div></li>`)] : [];
     const body = `
+      ${stepperHTML(e)}
       <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:14px">${epTags(e)}</div>
       ${v ? `<video class="ep-video" controls preload="metadata" playsinline poster="${esc(v.thumb_url + rev)}" src="${esc(v.final_url + rev)}"></video>` : ''}
       <div class="actions" style="margin:12px 0 6px">
@@ -1292,18 +1564,35 @@
           ? `<a href="${esc(x.url)}" target="_blank" rel="noopener">${esc(x.title)}</a>` : esc(x.title)}</div>
           <div class="meta"><span>${when(x.at)}</span>${x.shorts ? `<span>шортсов: ${x.shorts}</span>` : ''}</div></div></li>`).join('')}</ul>`
         : '<div class="muted">Пока ничего не публиковали</div>';
-      return `<div class="card conn"><div class="card-h"><h2><span class="conn-ic ${pid}">${PLAT_ICON[pid]()}</span>${esc(p.title || pid)}</h2>${badge(st, tone)}</div>
+      return `<div class="card conn" id="conn-${pid}"><div class="card-h"><h2><span class="conn-ic ${pid}">${PLAT_ICON[pid]()}</span>${esc(p.title || pid)}</h2>${badge(st, tone)}</div>
         <div class="card-b">
           <div class="faint conn-what">${esc(p.what || '')}</div>
           ${isTg ? tgBlock() : isMeta ? metaBlock(pid) : (p.accounts.length ? accs : `<div class="note"><b>Как подключить</b><ol class="conn-steps">${HOWTO_YT.map(x => `<li>${esc(x)}</li>`).join('')}</ol></div>`)}
-          <div class="section-t">Кто сюда публикует</div><div class="conn-dirs">${dirs}</div>
-          <div class="section-t">Последние публикации</div>${pubs}
+          <details class="conn-more2"><summary>Кто сюда публикует и что вышло${p.publications.length ? ` · ${p.publications.length}` : ''}</summary>
+            <div class="section-t">Кто сюда публикует</div><div class="conn-dirs">${dirs}</div>
+            <div class="section-t">Последние публикации</div>${pubs}</details>
         </div></div>`;
     };
-    view.lastElementChild.outerHTML = (d.error ? failBox('Не получилось спросить n8n: ' + d.error) : '') +
+    const sumState = pid => {
+      const p = P[pid] || { accounts: [] };
+      if (pid === 'telegram') return T.connected ? (T.can_post ? 'ok' : 'err') : '';
+      if (pid === 'facebook' || pid === 'threads') return metaState(pid)[1];
+      return p.accounts.some(a => a.check && a.check.state === 'ok') ? 'ok' : p.accounts.length ? 'warn' : '';
+    };
+    const SUM_T = { ok: 'подключено', warn: 'нужно действие', err: 'не публикует', '': 'не подключено' };
+    const summary = `<div class="conn-sum">${['youtube', 'facebook', 'threads', 'telegram'].map(pid => {
+      const st = sumState(pid);
+      return `<button type="button" class="cs ${st || 'none'}" data-goto="conn-${pid}"><span class="conn-ic ${pid}">${PLAT_ICON[pid]()}</span><span class="grow"><b>${esc((P[pid] || {}).title || pid)}</b>
+        <span>${SUM_T[st]}</span></span><span class="dot ${st}"></span></button>`;
+    }).join('')}</div>`;
+    view.lastElementChild.outerHTML = (d.error ? failBox('Не получилось спросить n8n: ' + d.error) : '') + summary +
       `<div class="grid conns">${['youtube', 'facebook', 'threads', 'telegram'].map(card).join('')}</div>
        <div class="note" style="margin-top:16px">Пароли сюда не вводятся. YouTube входит через n8n — статус здесь проверяется по-настоящему: «подключено» только когда вход в Google выполнен. Facebook и Threads — кнопкой «Подключить»: входишь на сайте Meta, а Студия получает доступ и хранит его зашифрованным, никому не показывая. Telegram — бот-администратор канала: токен бота вписываешь сам, Студия хранит его зашифрованным. Куда публикует каждое направление — в «Направлениях».</div>`;
     view.querySelectorAll('[data-copy]').forEach(b => b.addEventListener('click', () => copyText(b.dataset.copy)));
+    view.querySelectorAll('[data-goto]').forEach(b => b.addEventListener('click', () => {
+      const el = document.getElementById(b.dataset.goto);
+      if (el) el.scrollIntoView({ behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth', block: 'start' });
+    }));
     view.querySelectorAll('[data-recheck]').forEach(b => b.addEventListener('click', async () => {
       b.disabled = true;
       try { await api('/api/connections?recheck=1'); toast('Проверил'); route(); } catch (e) { toast(e.message, true); b.disabled = false; }
@@ -1397,36 +1686,123 @@
   // Рубрики и каналы: настройки, по которым конвейер пишет сценарий, собирает вставки, монтирует и публикует.
   // Раньше лежали в Google-таблице; процессы n8n читают их отсюда (studio/app/directions.py).
   const STOCK_T = { coverr: 'Coverr — видео', wikimedia: 'Wikimedia', openverse: 'Openverse — фото', nasa: 'NASA' };
+  // ---------- Направления ----------
+  // карточка направления: папка для видео (видит ли её монтаж и сколько видео ждут), что конвейер сделает с записью, куда публикует
+  const FOLDER_WHY = {
+    no_access: 'Монтаж не видит эту папку.', not_folder: 'По ссылке не папка.', no_folder: 'Папка не задана.',
+    no_key: 'На сервере монтажа нет ключа Google.', worker: 'Сервер монтажа не ответил.', old_worker: 'Проверка папки заработает после обновления сервера монтажа (пара минут).',
+  };
+  function folderHTML(x, f) {
+    if (!x.folder_url) return `<div class="fold-st warn"><span class="dot warn"></span><span><b>Папка не задана.</b> Создай папку на Google Диске и вставь ссылку в «Изменить» — туда кидаешь записи.</span></div>`;
+    if (!f) return `<div class="fold-st"><span class="dot"></span><span class="faint">${x.enabled ? 'проверяю папку…' : 'направление выключено — папку монтаж не смотрит'}</span></div>`;
+    if (f.ok) {
+      const sub = f.folders_n ? `<div class="fold-warn">В папке есть подпапки (${f.folders_n}: ${esc((f.folders || []).slice(0, 3).join(', '))}${f.folders_n > 3 ? '…' : ''}) — видео из них монтаж не берёт. Клади записи прямо в эту папку.</div>` : '';
+      return `<div class="fold-st ok"><span class="dot ok"></span><span><b>Монтаж видит папку${f.name ? ' «' + esc(f.name) + '»' : ''}.</b>
+        ${f.waiting_n ? `Ждут монтажа: ${f.waiting_n} ${plural(f.waiting_n, 'видео', 'видео', 'видео')} — возьмёт по одному, в течение пары минут.` : 'Новых видео нет — кинь запись, монтаж начнётся сам.'}</span></div>${sub}`;
+    }
+    const acct = f.account ? `<div class="fold-acct"><code>${esc(f.account)}</code><button class="btn small" data-copy="${esc(f.account)}">${I.copy}Скопировать</button></div>` : '';
+    return `<div class="fold-st err"><span class="dot err"></span><span><b>${esc(FOLDER_WHY[f.reason] || 'Проверить не удалось.')}</b>
+      ${f.reason === 'no_access' ? 'Открой папку → «Поделиться» → добавь адрес ниже с правом «Читатель». Или создай эту папку внутри уже подключённой — доступ перейдёт сам.'
+        : f.reason === 'worker' || f.reason === 'old_worker' ? '' : esc(f.error || '')}</span></div>${f.reason === 'no_access' ? acct : ''}`;
+  }
+  function doesHTML(x, d) {
+    const items = [];
+    items.push(x.mode === 'free' ? 'кидаешь запись без сценария — вставки подберутся по речи' : x.mode === 'sources' ? 'сценарий из новостей источников → суфлёр → запись' : 'сценарий по теме → суфлёр → запись');
+    if (x.cut_pauses || x.cut_retakes) items.push([x.cut_pauses && `вырежет паузы длиннее ${x.pause_cut_ms} мс`, x.cut_retakes && 'уберёт дубли'].filter(Boolean).join(' и '));
+    items.push('субтитры, главы и подписи на кадре');
+    items.push(`вставки: ${x.inserts.length} ${plural(x.inserts.length, 'вид', 'вида', 'видов')} (${esc(x.inserts.slice(0, 4).map(k => (d.kinds[k] || k).toLowerCase()).join(', '))}${x.inserts.length > 4 ? '…' : ''})`);
+    if (x.shorts) items.push(`шортсы: ${x.shorts}`);
+    items.push('Claude проверит кадры со вставками и напишет тексты для площадок');
+    return `<ul class="dir-does">${items.map(t => `<li>${t}</li>`).join('')}</ul>`;
+  }
+  function pubIcons(x, d) {
+    const PRIV = { private: 'ограниченный', unlisted: 'по ссылке', public: 'открытый' };
+    const one = (on, ic, t, sub) => `<span class="dp ${on ? 'on' : ''}" title="${esc(t + (on ? '' : ' — выключено'))}">${ic}<span>${esc(sub || t)}</span></span>`;
+    return `<div class="dir-pub">${one(x.publish_youtube, I.yt, 'YouTube', x.publish_youtube ? PRIV[x.youtube_privacy] || x.youtube_privacy : 'YouTube')}
+      ${one(x.publish_facebook, I.fb, 'Facebook вместе с YouTube', 'Facebook')}${one(x.publish_threads, I.threads, 'Threads вместе с YouTube', 'Threads')}
+      ${one(x.publish_telegram, I.tg, 'Telegram вместе с YouTube', 'Telegram')}
+      ${(x.publish_slots || []).length ? `<span class="dp on" title="Окна публикации по расписанию">${I.cal}<span>${esc(x.publish_slots.join(', '))}</span></span>` : ''}</div>`;
+  }
   async function pageDirections(view) {
-    view.innerHTML = head('Направления', 'Рубрики и каналы: длительность, стиль, вставки, монтаж, папка на Диске и публикация',
+    view.innerHTML = head('Направления', 'Рубрики и каналы: у каждого своя папка на Google Диске — кинул запись, дальше конвейер сам',
       `<a class="btn primary" href="#/directions/edit?new=1">${I.plus}Новое направление</a>`) + loading();
     let d;
     try { d = await api('/api/directions'); } catch (e) { view.lastElementChild.outerHTML = failBox(e.message); return; }
     const list = d.directions || [];
-    const cards = list.map(x => `<div class="card ep dir${x.enabled ? '' : ' off'}">
-      <div class="tags">${badge(x.enabled ? 'включено' : 'выключено', x.enabled ? 'ok' : '')}${badge(d.modes[x.mode] || x.mode, 'plain')}${badge(x.id, 'plain')}</div>
-      <h3>${esc(x.name)}</h3>
-      <div class="meta"><span>${x.minutes} мин</span><span>${x.words_per_min} сл/мин</span><span>шортсов: ${x.shorts}</span>
-        ${x.episodes_30d ? `<span>выпусков за 30 дней: ${x.episodes_30d}</span>` : ''}</div>
-      <dl class="kv dir-kv">
-        <dt>Вставки</dt><dd>${esc(x.inserts.map(k => (d.kinds[k] || k).toLowerCase()).join(', ')) || '—'}</dd>
-        <dt>Монтаж</dt><dd>${x.cut_pauses ? 'паузы длиннее ' + x.pause_cut_ms + ' мс — вырезать' : 'паузы не трогать'}${x.cut_retakes ? ', дубли — убирать' : ''}</dd>
-        <dt>YouTube</dt><dd>${x.publish_youtube ? esc((d.privacy[x.youtube_privacy] || x.youtube_privacy).toLowerCase()) : 'не публиковать'}</dd>
-        ${x.publish_facebook || x.publish_threads || x.publish_telegram ? `<dt>Ещё</dt><dd>${[x.publish_facebook && 'Facebook', x.publish_threads && 'Threads', x.publish_telegram && 'Telegram'].filter(Boolean).join(', ')}</dd>` : ''}
-        <dt>Папка на Диске</dt><dd>${x.folder_url ? `<a href="${esc(x.folder_url)}" target="_blank" rel="noopener">открыть</a>` : 'не задана'}</dd>
-      </dl>
-      <div class="foot"><a class="btn small" href="#/directions/edit?id=${encodeURIComponent(x.id)}">${I.pencil}Изменить</a></div></div>`).join('');
-    view.lastElementChild.outerHTML = (list.length ? `<div class="grid eps">${cards}</div>`
-      : `<div class="card"><div class="empty"><b>Направлений пока нет</b>Нажми «Новое направление»</div></div>`) +
-      `<div class="note" style="margin-top:16px">Раньше эти настройки жили в Google-таблице. Теперь конвейер берёт их отсюда: изменил и сохранил — следующий выпуск пойдёт уже по-новому.</div>`;
+    const cards = list.map(x => `<div class="card dir${x.enabled ? '' : ' off'}" style="--dc:${esc(x.accent_color || '#E53935')}" data-dir="${esc(x.id)}">
+      <div class="dir-h"><div class="grow"><h3>${esc(x.name)}</h3>
+        <div class="faint">${esc(d.modes[x.mode] || x.mode)} · код ${esc(x.id)}</div></div>
+        ${badge(x.enabled ? 'включено' : 'выключено', x.enabled ? 'ok' : '')}</div>
+      <div class="dir-fold"><div class="dir-fold-h">${I.folder}<b>Папка для видео</b>
+          ${x.folder_url ? `<a class="btn small${x.enabled ? ' primary' : ''}" href="${esc(x.folder_url)}" target="_blank" rel="noopener">${I.ext}Открыть папку</a>
+            <button class="btn small icon" data-fcheck="${esc(x.id)}" title="Проверить папку ещё раз" aria-label="Проверить папку">${I.refresh}</button>` : ''}</div>
+        <div class="fold-b" data-fold="${esc(x.id)}">${folderHTML(x, null)}</div></div>
+      <div class="dir-sec"><div class="dir-sec-t">Что конвейер сделает с записью</div>${doesHTML(x, d)}</div>
+      <div class="dir-sec"><div class="dir-sec-t">Куда выйдет</div>${pubIcons(x, d)}</div>
+      <div class="foot"><a class="btn small" href="#/directions/edit?id=${encodeURIComponent(x.id)}">${I.pencil}Изменить</a>
+        ${x.episodes_30d ? `<a class="faint dir-n" href="#/episodes?dir=${encodeURIComponent(x.id)}">выпусков за 30 дней: ${x.episodes_30d}</a>` : ''}</div></div>`).join('');
+    view.lastElementChild.outerHTML = (list.length ? `<div class="grid dirs">${cards}</div>`
+      : `<div class="card"><div class="empty"><b>Направлений пока нет</b>Нажми «Новое направление» — выбери шаблон, и останется только название и папка</div></div>`) +
+      `<div class="note" style="margin-top:16px">Как это работает: у каждого направления своя папка на Google Диске. Кинул туда видео — через пару минут монтаж его заберёт:
+        вырежет паузы, поставит вставки и субтитры, нарежет шортсы, а превью придёт в Студию и в Telegram. Направление определяется папкой — больше ничего выбирать не надо.</div>`;
+    const check = async (id, fresh) => {
+      const box = view.querySelector(`[data-fold="${CSS.escape(id)}"]`);
+      const x = list.find(r => r.id === id);
+      if (!box || !x || !x.folder_url) return;
+      box.innerHTML = folderHTML(x, null).replace('проверяю папку…', 'проверяю папку…').replace('направление выключено — папку монтаж не смотрит', 'проверяю папку…');
+      let f;
+      try { f = await api('/api/directions/' + encodeURIComponent(id) + '/folder' + (fresh ? '?fresh=1' : '')); }
+      catch (e) { f = { ok: false, reason: 'error', error: e.message }; }
+      box.innerHTML = folderHTML(x, f);
+      box.querySelectorAll('[data-copy]').forEach(b => b.addEventListener('click', () => copyText(b.dataset.copy)));
+    };
+    list.filter(x => x.enabled && x.folder_url).forEach(x => check(x.id, false));
+    view.querySelectorAll('[data-fcheck]').forEach(b => b.addEventListener('click', () => check(b.dataset.fcheck, true)));
+  }
+
+  // шаблоны нового направления (как шаблоны брендов у Opus Clip и проектов у Kitsu): выбрал — осталось название и папка
+  const DIR_TPL = {
+    explain: { t: 'Познавательное', d: 'История, наука, объяснения. Кидаешь запись — вставки (схемы, карты, архивные фото, сток) подберутся по речи.',
+      v: { mode: 'free', inserts: ['diagram', 'map', 'wikimedia', 'stock', 'number', 'quote', 'card'], accent_color: '#4FC3F7', brand_color: '#0B1D3A',
+        style_prompt: 'Объясняй сложное просто: аналогии из жизни, схемы, примеры. Опирайся на исследования и называй их. Тон спокойный, дружелюбный, без воды.' } },
+    howto: { t: 'Автоматизация и уроки', d: 'Инструменты, нейросети, пошаговые разборы. Вставки — карточки, цифры, схемы, сток.',
+      v: { mode: 'free', inserts: ['card', 'number', 'quote', 'diagram', 'stock'], accent_color: '#7CB342', brand_color: '#102015',
+        style_prompt: 'Практично и по шагам: что делаем, зачем и что получится. Называй инструменты и цифры. Короткие фразы, без воды.' } },
+    news: { t: 'Новости из источников', d: 'Сценарий из включённых источников → суфлёр → запись. Вставки — скриншоты статей, медиа, цитаты, карты.',
+      v: { mode: 'sources', sources_on: true, inserts: ['screenshot', 'source_media', 'card', 'quote', 'number', 'map'], accent_color: '#E53935', brand_color: '#111111', delivery: 'opinion',
+        style_prompt: 'Новости без сказок. В каждом сюжете: что произошло (только факты из источников, с цифрами) → почему это важно → короткий разбор. Ничего не выдумывать. Тон прямой и спокойный.' } },
+    free: { t: 'Своё видео', d: 'Блог, влог, мысли вслух — без сценария. Монтаж вырежет паузы и дубли, поставит вставки и субтитры.',
+      v: { mode: 'free', inserts: ['card', 'quote', 'number', 'map', 'stock', 'wikimedia'], accent_color: '#FFB300', brand_color: '#1A1408' } },
+    blank: { t: 'С нуля', d: 'Все настройки вручную.', v: {} },
+  };
+  // код направления из названия: «Познавательное» → poznavatelnoe (латиница, для конвейера)
+  const TR = { а: 'a', б: 'b', в: 'v', г: 'g', д: 'd', е: 'e', ё: 'e', ж: 'zh', з: 'z', и: 'i', й: 'y', к: 'k', л: 'l', м: 'm', н: 'n', о: 'o', п: 'p', р: 'r', с: 's',
+    т: 't', у: 'u', ф: 'f', х: 'h', ц: 'c', ч: 'ch', ш: 'sh', щ: 'sch', ъ: '', ы: 'y', ь: '', э: 'e', ю: 'yu', я: 'ya', і: 'i', ї: 'yi', є: 'ye', ґ: 'g' };
+  function slug(name, taken) {
+    let x = String(name || '').toLowerCase().split('').map(c => TR[c] ?? c).join('').replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 28);
+    if (!/^[a-z]/.test(x)) x = 'd-' + x;
+    x = x.replace(/-+$/, '') || 'dir';
+    if (x.length < 2) x += '1';
+    let out = x, n = 2;
+    while ((taken || []).includes(out)) out = x.slice(0, 28) + '-' + n++;
+    return out;
   }
 
   async function pageDirectionEdit(view, params) {
     const isNew = params.get('new') === '1';
-    view.innerHTML = head(isNew ? 'Новое направление' : 'Направление', '', `<a class="btn" href="#/directions">Назад</a>`) + loading();
+    const tplKey = params.get('tpl') || '';
+    view.innerHTML = head(isNew ? 'Новое направление' : 'Направление', isNew && !tplKey ? 'С чего начать? Шаблон заполнит настройки — останется название и папка' : '',
+      `<a class="btn" href="#/directions">Назад</a>`) + loading();
     let d;
     try { d = await api('/api/directions'); } catch (e) { view.lastElementChild.outerHTML = failBox(e.message); return; }
     const all = d.directions || [];
+    if (isNew && !DIR_TPL[tplKey] && !params.get('copy')) {
+      view.lastElementChild.outerHTML = `<div class="grid tpls">${Object.entries(DIR_TPL).map(([k, t]) => `<a class="card tpl${k === 'blank' ? ' quiet' : ''}"
+        href="#/directions/edit?new=1&tpl=${k}" style="--dc:${esc(t.v.accent_color || 'var(--line)')}"><b>${esc(t.t)}</b><span>${esc(t.d)}</span></a>`).join('')}
+        ${all.map(r => `<a class="card tpl quiet" href="#/directions/edit?new=1&copy=${encodeURIComponent(r.id)}" style="--dc:${esc(r.accent_color || 'var(--line)')}">
+          <b>Как «${esc(r.name)}»</b><span>Скопировать все настройки этого направления, кроме папки.</span></a>`).join('')}</div>`;
+      return;
+    }
     let x = isNew ? null : all.find(r => r.id === params.get('id'));
     if (!isNew && !x) { view.lastElementChild.outerHTML = failBox('Нет такого направления'); return; }
     const blank = { id: '', name: '', enabled: true, mode: 'free', language: 'ru', minutes: 15, words_per_min: 130, shorts: 3, sources_on: false,
@@ -1442,11 +1818,15 @@
     const txt = (k, v, ph = '') => `<input class="input" data-k="${k}" value="${esc(v || '')}" placeholder="${esc(ph)}">`;
     const checks = (k, opts, vals) => `<div class="df-checks">${Object.entries(opts).map(([o, t]) =>
       `<label class="chk"><input type="checkbox" data-list="${k}" value="${o}"${vals.includes(o) ? ' checked' : ''}><span>${esc(t)}</span></label>`).join('')}</div>`;
+    // папка — главное у направления: кинул туда запись, дальше конвейер сам. У нового направления — сразу под названием
+    const folderRow = v => row('Папка на Google Диске', txt('drive_folder_id', v.folder_url || v.drive_folder_id, 'ссылка на папку, куда кидаешь записи') +
+      (v.folder_url ? ` <a class="btn small" href="${esc(v.folder_url)}" target="_blank" rel="noopener">${I.ext}Открыть</a>` : ''),
+      'монтаж проверяет её каждые 2 минуты. Удобнее всего создать её внутри папки, которую монтаж уже видит, — доступ перейдёт сам');
     const form = (v) => `
       <div class="card"><div class="card-h"><h2>Основное</h2></div><div class="card-b">
-        ${isNew ? row('Код', `<input class="input" id="dnid" placeholder="например blog" maxlength="31">`, 'латиницей, без пробелов — по нему конвейер узнаёт направление') +
-          row('Взять настройки из', `<select class="input" id="dcopy"><option value="">— с нуля —</option>${all.map(r => `<option value="${esc(r.id)}"${r.id === v._copy ? ' selected' : ''}>${esc(r.name)}</option>`).join('')}</select>`) : ''}
         ${row('Название', txt('name', v.name, 'как назвать рубрику или канал'))}
+        ${isNew ? folderRow(v) + row('Код', `<input class="input" id="dnid" placeholder="например blog" maxlength="31">`, 'сам получается из названия; латиницей, без пробелов — по нему конвейер узнаёт направление') +
+          row('Взять настройки из', `<select class="input" id="dcopy"><option value="">— с нуля —</option>${all.map(r => `<option value="${esc(r.id)}"${r.id === v._copy ? ' selected' : ''}>${esc(r.name)}</option>`).join('')}</select>`) : ''}
         ${row('Включено', sw('enabled', v.enabled), 'выключенное направление конвейер не трогает: папку не смотрит, выпуски не делает')}
         ${row('Режим', sel('mode', d.modes, v.mode), 'новости — из источников; тема — по запросу боту; своё видео — кидаешь запись без сценария, вставки подберутся по речи')}
         ${row('Язык', sel('language', d.langs, v.language))}
@@ -1474,6 +1854,8 @@
         ${row('YouTube', sw('publish_youtube', v.publish_youtube), 'выпуск и шортсы')}
         ${row('Доступ к видео', sel('youtube_privacy', d.privacy, v.youtube_privacy))}
         ${row('Хэштеги канала', txt('hashtags', v.hashtags || '', '#БезСказок #новости'), 'добавляются ко всем публикациям; ещё 2–3 по темам выпуска пишет Claude')}
+        ${row('Окна публикации', txt('publish_slots', (v.publish_slots || []).join(', '), 'например 19:00 или 9:30, 19:00'),
+          'время по часам Студии; у готового выпуска появится кнопка «В окно: сегодня в 19:00» — дату выбирать не надо. Пусто — публикуешь сразу или ставишь своё время')}
         ${row('Facebook вместе с YouTube', sw('publish_facebook', v.publish_facebook, !cn.facebook && !v.publish_facebook),
           cn.facebook ? 'включено — после YouTube выпуск сам уйдёт и сюда, сразу для всех; выключено — только кнопкой на странице выпуска' : 'сначала подключи страницу в <a href="#/connections">«Подключениях»</a>')}
         ${row('Threads вместе с YouTube', sw('publish_threads', v.publish_threads, !cn.threads && !v.publish_threads),
@@ -1486,9 +1868,7 @@
         ${row('Цвет фона карточек', `<input class="input df-color" type="color" data-k="brand_color" value="${esc(v.brand_color)}">`)}
         ${row('Акцентный цвет', `<input class="input df-color" type="color" data-k="accent_color" value="${esc(v.accent_color)}">`)}
         ${row('Логотип', txt('logo_url', v.logo_url, 'ссылка на картинку, можно пусто'))}
-        ${row('Папка на Google Диске', txt('drive_folder_id', v.folder_url || v.drive_folder_id, 'ссылка на папку, куда кидаешь записи') +
-          (v.folder_url ? ` <a class="btn small" href="${esc(v.folder_url)}" target="_blank" rel="noopener">${I.ext}Открыть</a>` : ''),
-          'монтаж проверяет её каждые 2 минуты')}
+        ${isNew ? '' : folderRow(v)}
       </div></div>`;
     const draw = (v) => {
       view.lastElementChild.outerHTML = `<div class="dir-form">${form(v)}
@@ -1497,11 +1877,20 @@
       if (copySel) copySel.addEventListener('change', () => {
         const src = all.find(r => r.id === copySel.value);
         const nid = $('#dnid').value;
-        draw(Object.assign({}, src || blank, { id: '', drive_folder_id: '', folder_url: '', name: $('[data-k="name"]').value, _copy: copySel.value }));
+        const fold = ($('[data-k="drive_folder_id"]') || {}).value || '';
+        draw(Object.assign({}, src || blank, { id: '', drive_folder_id: fold, folder_url: '', name: $('[data-k="name"]').value, _copy: copySel.value }));
         $('#dnid').value = nid;
       });
       $('#dsave').addEventListener('click', save);
+      if (isNew) {  // код сам из названия, пока его не правили руками
+        const nm = $('[data-k="name"]'), code = $('#dnid');
+        const auto = () => { if (!codeTouched && nm.value.trim()) code.value = slug(nm.value, all.map(r => r.id)); };
+        code.addEventListener('input', () => { codeTouched = true; });
+        nm.addEventListener('input', auto);
+        if (!code.value) auto();
+      }
     };
+    let codeTouched = false;
     const collect = () => {
       const out = {};
       view.querySelectorAll('[data-k]').forEach(el => { out[el.dataset.k] = el.type === 'checkbox' ? el.checked : el.value; });
@@ -1522,6 +1911,11 @@
         toast(isNew ? 'Направление добавлено' : 'Сохранено — следующий выпуск пойдёт по новым настройкам');
         location.hash = '#/directions';
       } catch (e) { toast(e.message, true); btn.disabled = false; }
+    }
+    if (isNew) {  // шаблон или копия: настройки заполнены, название подсказываем
+      const src = params.get('copy') ? all.find(r => r.id === params.get('copy')) : null;
+      const tp = DIR_TPL[tplKey] || DIR_TPL.blank;
+      x = Object.assign({}, blank, src || tp.v, { id: '', drive_folder_id: '', folder_url: '', name: src ? '' : (tplKey === 'blank' ? '' : tp.t), _copy: src ? src.id : '' });
     }
     draw(x || blank);
   }
@@ -1546,7 +1940,7 @@
   async function pagePrompter(view) {
     const wpm = pPrefs().wpm;
     view.innerHTML = head('Суфлёр', 'Текст бежит по экрану в твоём темпе: сценарии конвейера и любые свои тексты',
-      `<a class="btn" href="#/remote" title="Открой на телефоне — он станет пультом для суфлёра у камеры">📱 Пульт</a><a class="btn primary" href="#/prompter/edit">${I.plus}Свой текст</a>`) + loading();
+      `<a class="btn" href="#/remote" title="Открой на телефоне — он станет пультом для суфлёра у камеры">${I.phone}Пульт</a><a class="btn primary" href="#/prompter/edit">${I.plus}Свой текст</a>`) + loading();
     let d;
     try { d = await api('/api/prompter'); } catch (e) { view.lastElementChild.outerHTML = failBox(e.message); return; }
     const row = (href, title, meta, right) => `<li class="click" data-href="${esc(href)}"><div class="grow"><div class="title">${esc(title)}</div>
@@ -1566,8 +1960,11 @@
         <div class="card"><div class="card-h"><h2>Свои тексты</h2><a href="#/prompter/edit">Добавить</a></div>
           <div class="card-b flush">${texts ? `<ul class="rows">${texts}</ul>` : `<div class="empty"><b>Своих текстов нет</b>Вставь любой текст — суфлёр прокрутит его с той скоростью, с какой ты читаешь</div>`}</div></div>
       </div>
-      <div class="note" style="margin-top:16px">В суфлёре: <b>пробел</b> или касание — пауза и пуск, <b>↑ ↓</b> — скорость, <b>← →</b> — предыдущий и следующий раздел, <b>1–9</b> — к сюжету, колёсико или палец — подвинуть текст.
-        <b>Кликер или педаль</b>: PageDown — пуск и пауза, PageUp — абзац назад. <b>Пульт с телефона</b>: суфлёр открыт у камеры, а на телефоне — Студия → Суфлёр → «📱 Пульт». Скорость и размер шрифта запоминаются на этом устройстве.</div>`;
+      <details class="note keys" style="margin-top:16px"><summary>Клавиши, кликер и пульт с телефона</summary>
+        <div class="keys-g"><div><kbd>Пробел</kbd> или касание</div><span>пауза и пуск</span><div><kbd>↑</kbd> <kbd>↓</kbd></div><span>скорость</span>
+          <div><kbd>←</kbd> <kbd>→</kbd></div><span>предыдущий и следующий раздел</span><div><kbd>1</kbd>–<kbd>9</kbd></div><span>к сюжету</span>
+          <div><kbd>PageDown</kbd></div><span>кликер или педаль: пуск и пауза</span><div><kbd>PageUp</kbd></div><span>абзац назад</span></div>
+        <p>Пульт: суфлёр открыт у камеры, а на телефоне — Студия → Суфлёр → «Пульт». Скорость и размер шрифта запоминаются на этом устройстве.</p></details>`;
     view.querySelectorAll('[data-href]').forEach(li => li.addEventListener('click', ev => {
       if (ev.target.closest('a,button')) return;
       location.hash = li.dataset.href;

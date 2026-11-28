@@ -21,7 +21,8 @@ STOCK = ('coverr', 'wikimedia', 'openverse', 'nasa')
 
 FLAGS = ('enabled', 'sources_on', 'ai_images', 'publish_youtube', 'publish_telegram', 'publish_tiktok', 'cut_pauses', 'cut_retakes',
          'publish_facebook', 'publish_threads')
-EXTRA = ('sort', 'publish_facebook', 'publish_threads', 'hashtags')  # есть в Студии, но не в запросе n8n: Facebook и Threads публикует сама Студия
+EXTRA = ('sort', 'publish_facebook', 'publish_threads', 'hashtags', 'publish_slots')  # есть в Студии, но не в запросе n8n: Facebook и Threads публикует сама Студия
+# publish_slots — окна публикации по расписанию (schedule.py): «В ближайшее окно» у выпуска
 # publish_telegram — из бывшей таблицы, в запросе n8n он есть, но К6 его не читает: «Telegram вместе с YouTube» делает Студия (telegram.py)
 TAG_RE = re.compile(r'#?([^\W_][\w]{0,49})')
 
@@ -64,6 +65,7 @@ def _row(r: dict) -> dict:
         out[k] = str(r.get(k) or '').upper() == 'TRUE'
     out['inserts'] = [k for k in str(r.get('inserts') or '').split(',') if k.strip()]
     out['stock_sources'] = [k for k in str(r.get('stock_sources') or '').split(',') if k.strip()]
+    out['publish_slots'] = [k for k in str(r.get('publish_slots') or '').split(',') if k.strip()]
     fid = r.get('drive_folder_id') or ''
     out['folder_url'] = f'https://drive.google.com/drive/folders/{fid}' if fid else ''
     out['updated_at'] = r['updated_at'].isoformat() if r.get('updated_at') else None
@@ -181,6 +183,9 @@ def _clean(data: dict) -> dict:
         if data['delivery'] not in DELIVERY:
             raise ValueError('Подача: «с мнением» или «только новости»')
         out['delivery'] = data['delivery']
+    if 'publish_slots' in data:
+        from .schedule import clean_slots
+        out['publish_slots'] = clean_slots(data['publish_slots'])
     if 'youtube_privacy' in data:
         if data['youtube_privacy'] not in PRIVACY:
             raise ValueError('Неизвестный доступ к видео')
@@ -232,3 +237,49 @@ def meta() -> dict:
     st = meta.status()
     return {'kinds': KINDS, 'modes': MODES, 'privacy': PRIVACY, 'langs': LANGS, 'delivery': DELIVERY, 'stock': list(STOCK),
             'connected': {'facebook': st['facebook']['connected'], 'threads': st['threads']['connected'], 'telegram': telegram.status()['connected']}}
+
+
+# ---------- папка на Google Диске: видит ли её монтаж и что в ней лежит ----------
+_FOLDER_CACHE: dict = {}
+FOLDER_TTL = 60  # секунд: страница «Направления» не дёргает Google на каждое обновление
+
+
+def folder_check(did: str, ws: str = config.WORKSPACE, fresh: bool = False) -> dict:
+    """Спрашивает сервер монтажа (у него ключ Google, только чтение): видна ли папка направления, сколько в ней видео
+    и сколько из них монтаж ещё не брал (нет в k_files). Видео в подпапках монтаж не видит — об этом тоже говорим."""
+    import time
+    import httpx
+    d = get(did, ws)
+    fid = d.get('drive_folder_id') or ''
+    if not fid:
+        return {'ok': False, 'reason': 'no_folder'}
+    hit = _FOLDER_CACHE.get(fid)
+    if hit and not fresh and time.time() - hit[0] < FOLDER_TTL:
+        res = dict(hit[1])
+    else:
+        try:
+            r = httpx.post(config.WORKER_URL + '/drive/check', json={'folder_id': fid}, headers={'X-Worker-Key': config.WORKER_KEY}, timeout=60)
+        except httpx.HTTPError as e:
+            return {'ok': False, 'reason': 'worker', 'error': 'сервер монтажа не ответил (' + e.__class__.__name__ + ')'}
+        if r.status_code == 404:
+            return {'ok': False, 'reason': 'old_worker', 'error': 'сервер монтажа ещё не обновился — проверка папки заработает в течение пары минут'}
+        try:
+            res = r.json()
+        except ValueError:
+            res = {}
+        if r.status_code != 200:
+            err = str(res.get('error') or r.status_code)
+            return {'ok': False, 'reason': 'no_key' if 'нет ключа Google' in err else 'error', 'error': err[:300]}
+        _FOLDER_CACHE[fid] = (time.time(), dict(res))  # в кэше — ответ как есть: ниже его дополняем
+    if res.get('ok'):
+        vids = [v for v in res.get('videos') or [] if int(v.get('size') or 0) >= 1_000_000]  # как К5: файлы меньше 1 МБ не берёт
+        seen = set()
+        if vids and db.table_exists('k_files'):
+            seen = {r['drive_file_id'] for r in db.q('SELECT drive_file_id FROM k_files WHERE drive_file_id = ANY(%s)', ([v['id'] for v in vids],))}
+        res['videos_n'] = len(vids)
+        res['waiting'] = [{'name': v['name'], 'size_mb': round(int(v.get('size') or 0) / 1048576), 'created': v.get('created')}
+                          for v in vids if v['id'] not in seen][:10]
+        res['waiting_n'] = sum(1 for v in vids if v['id'] not in seen)
+        res.pop('videos', None)
+    res['enabled'] = d.get('enabled')
+    return res
