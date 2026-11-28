@@ -1950,6 +1950,7 @@
         ${row('Стиль', `<textarea class="input df-area" data-k="style_prompt" rows="5" placeholder="Как писать: тон, структура, чего избегать">${esc(v.style_prompt || '')}</textarea>`, 'это читает сценарист (Claude) перед каждым текстом')}
       </div></div>
       <div class="card"><div class="card-h"><h2>Вставки</h2></div><div class="card-b">
+        ${row('Бриф для вставок', `<textarea class="input df-area" data-k="insert_brief" rows="4" placeholder="О чём эти видео и какие вставки нужны. Например: ролики про автоматизацию и рекламу — делай схемы воронок, скриншоты интерфейсов, графики результатов; без мемов и котиков">${esc(v.insert_brief || '')}</textarea>`, 'главная подсказка монтажу для видео без сценария: по ней он выбирает темы и типы вставок. Пусто — берёт только из твоей речи')}
         ${row('Какие можно', checks('inserts', d.kinds, v.inserts), 'скриншоты и медиа из источника бывают только в новостях')}
         ${row('Откуда брать сток', checks('stock_sources', STOCK_T, v.stock_sources), 'ничего не выбрано — набор по умолчанию')}
       </div></div>

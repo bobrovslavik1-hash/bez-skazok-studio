@@ -21,7 +21,7 @@ STOCK = ('coverr', 'wikimedia', 'openverse', 'nasa')
 
 FLAGS = ('enabled', 'sources_on', 'ai_images', 'publish_youtube', 'publish_telegram', 'publish_tiktok', 'cut_pauses', 'cut_retakes',
          'publish_facebook', 'publish_threads')
-EXTRA = ('sort', 'publish_facebook', 'publish_threads', 'hashtags', 'publish_slots')  # есть в Студии, но не в запросе n8n: Facebook и Threads публикует сама Студия
+EXTRA = ('sort', 'publish_facebook', 'publish_threads', 'hashtags', 'publish_slots', 'insert_brief')  # есть в Студии, но не в запросе n8n: Facebook и Threads публикует сама Студия
 # publish_slots — окна публикации по расписанию (schedule.py): «В ближайшее окно» у выпуска
 # publish_telegram — из бывшей таблицы, в запросе n8n он есть, но К6 его не читает: «Telegram вместе с YouTube» делает Студия (telegram.py)
 TAG_RE = re.compile(r'#?([^\W_][\w]{0,49})')
@@ -173,6 +173,8 @@ def _clean(data: dict) -> dict:
         out['drive_folder_id'] = fid
     if 'style_prompt' in data:
         out['style_prompt'] = str(data['style_prompt'] or '').strip()[:4000]
+    if 'insert_brief' in data:  # бриф для вставок (видео без сценария): о чём ролик и какие вставки нужны
+        out['insert_brief'] = str(data['insert_brief'] or '').strip()[:2000]
     if 'hashtags' in data:
         raw = data['hashtags']
         bad = [w for w in (raw if isinstance(raw, list) else re.split(r'[\s,;]+', str(raw or ''))) if w and not TAG_RE.fullmatch(w.strip())]
