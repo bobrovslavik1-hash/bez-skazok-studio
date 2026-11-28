@@ -1001,9 +1001,9 @@
         ${row('Доступ к видео', sel('youtube_privacy', d.privacy, v.youtube_privacy))}
         ${row('Хэштеги канала', txt('hashtags', v.hashtags || '', '#БезСказок #новости'), 'добавляются ко всем публикациям; ещё 2–3 по темам выпуска пишет Claude')}
         ${row('Facebook вместе с YouTube', sw('publish_facebook', v.publish_facebook, !cn.facebook && !v.publish_facebook),
-          cn.facebook ? 'выключено — публикуешь кнопкой на странице выпуска' : 'сначала подключи страницу в <a href="#/connections">«Подключениях»</a>')}
+          cn.facebook ? 'включено — после YouTube выпуск сам уйдёт и сюда, сразу для всех; выключено — только кнопкой на странице выпуска' : 'сначала подключи страницу в <a href="#/connections">«Подключениях»</a>')}
         ${row('Threads вместе с YouTube', sw('publish_threads', v.publish_threads, !cn.threads && !v.publish_threads),
-          cn.threads ? 'выключено — публикуешь кнопкой на странице выпуска' : 'сначала подключи в <a href="#/connections">«Подключениях»</a>')}
+          cn.threads ? 'включено — после YouTube цепочка выйдет сама, сразу для всех; выключено — только кнопкой на странице выпуска' : 'сначала подключи в <a href="#/connections">«Подключениях»</a>')}
         <div class="note">На странице выпуска у каждой площадки своя кнопка «Опубликовать»: Facebook и Threads выходят сразу, YouTube — с доступом, как выше. Включённые здесь Facebook и Threads выйдут ещё и сами, следом за YouTube.</div>
       </div></div>
       <div class="card"><div class="card-h"><h2>Оформление и папка</h2></div><div class="card-b">
