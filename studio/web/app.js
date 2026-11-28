@@ -724,11 +724,15 @@
         : `<img src="${esc(it.asset)}" alt="" loading="lazy">`) : '<span class="mt-nofile">файла нет</span>';
       const rep = c.replace ? (c.replace.url ? 'скрин ' + host(c.replace.url) : 'файл ' + c.replace.fname) : '';
       const unsure = it.conf != null && it.conf < 0.8 && !ed[it.i];
+      const own = ed[it.i] && ed[it.i].badge !== undefined;  // подпись поменяли руками
+      const badge = own ? ed[it.i].badge : c.replace ? '' : it.badge || '';
+      const label = badge ? esc(badge) : own ? '<i>без подписи</i>'
+        : c.replace ? (c.replace.url ? '<i>подпись со скрина</i>' : '<i>без подписи</i>') : esc(MT_KIND[it.kind] || it.kind || 'вставка');
       return `<li class="mt-row${c.remove ? ' rm' : ''}${ed[it.i] ? ' chg' : ''}" data-i="${it.i}">
         <button class="mt-thumb" data-mt-seek="${c.at_ms}" title="Перемотать к вставке">${thumb}</button>
         <div class="mt-info">
           <div class="title">${it.marker ? '№' + esc(it.marker) + ' · ' : ''}<button class="mt-tc" data-mt-seek="${c.at_ms}">${tc(c.at_ms)}</button> · ${sec(c.dur_ms)}${c.layout === 'full' ? ' · без ведущего' : ''}</div>
-          <div class="meta">${esc(it.badge || MT_KIND[it.kind] || it.kind || 'вставка')}${rep ? ' → <b>' + esc(rep) + '</b>' : it.replaced && !ed[it.i] ? ' · заменена' : it.edited && !ed[it.i] ? ' · правлена' : ''}${c.remove ? ' · <b>уберу</b>' : ''}${unsure ? ' · <span class="warntxt">проверь место</span>' : ''}</div>
+          <div class="meta">${can ? `<button class="mt-badge" data-mt="badge" title="Поправить подпись на кадре">${label}</button>` : label}${rep ? ' → <b>' + esc(rep) + '</b>' : it.replaced && !ed[it.i] ? ' · заменена' : it.edited && !ed[it.i] ? ' · правлена' : ''}${c.remove ? ' · <b>уберу</b>' : ''}${unsure ? ' · <span class="warntxt">проверь место</span>' : ''}</div>
         </div>
         ${can ? `<div class="mt-act">
           <button class="btn small" data-mt="earlier" title="На секунду раньше">−1 с</button><button class="btn small" data-mt="later" title="На секунду позже">+1 с</button>
@@ -737,26 +741,38 @@
           <button class="btn small" data-mt="replace">Заменить</button>
           <button class="btn small${c.remove ? '' : ' danger'}" data-mt="remove">${c.remove ? 'Вернуть' : 'Убрать'}</button></div>
         <div class="mt-rep" hidden>
-          <input class="input" data-mt-url placeholder="Ссылка на страницу — сделаю её скрин" value="${esc(c.replace && c.replace.url || '')}">
-          <button class="btn small" data-mt="rep-url">Скрин страницы</button>
-          <label class="btn small">Свой файл<input type="file" data-mt-file hidden accept="image/png,image/jpeg,image/webp,video/mp4,video/quicktime,video/webm"></label>
-          ${c.replace ? '<button class="btn small" data-mt="rep-undo">Не заменять</button>' : ''}</div>` : ''}
+          <label class="mt-field">Подпись на кадре<input class="input" data-mt-badge maxlength="90" value="${esc(badge)}"
+            placeholder="${c.replace && c.replace.url ? 'подпись со скрина: ' + esc(host(c.replace.url)) : 'без подписи'}"></label>
+          <div class="mt-rep-row">
+            <input class="input" data-mt-url placeholder="Ссылка на страницу — сделаю её скрин" value="${esc(c.replace && c.replace.url || '')}">
+            <button class="btn small" data-mt="rep-url">Скрин страницы</button>
+            <label class="btn small">Свой файл<input type="file" data-mt-file hidden accept="image/png,image/jpeg,image/webp,video/mp4,video/quicktime,video/webm"></label>
+            ${c.replace ? '<button class="btn small" data-mt="rep-undo">Не заменять</button>' : ''}</div></div>` : ''}
       </li>`;
     };
     const changes = () => Object.entries(ed).map(([i, x]) => (x.remove ? { i: Number(i), remove: true } : { i: Number(i), ...x }));
-    const head = running ? `<div class="note">Пересобираю${job.revert ? ' как было' : ` с правками (${job.changes || 0})`} — начато ${dt(job.at)}. Видео заменится само, итог придёт в Telegram.</div>`
+    const head = running ? `<div class="note">Пересобираю${job.revert ? ' как было' : job.only_shorts ? ` шортсы с исправленными субтитрами (${job.changes || 0})` : ` с правками (${job.changes || 0})`} — начато ${dt(job.at)}. ${job.only_shorts ? 'Шортсы заменятся сами' : 'Видео заменится само'}, итог придёт в Telegram.</div>`
       : !can ? `<div class="note">${esc(d.reason)}</div>`
       : job.status === 'error' ? `<div class="note warnnote">${job.partial ? 'Видео пересобрано, но шортсы или обложка могли остаться старыми' : 'Последняя пересборка не удалась'}: ${esc(job.error || '')}.${job.partial ? '' : ' Прежний вариант на месте.'}</div>`
       : `<div class="faint mt-help">Нажми на картинку или время — видео перемотается к вставке. Поставь видео на паузу на неудачной вставке — под плеером появится «Поправить». Правки копятся, пересборка одна на все.${job.status === 'done' ? ` Последняя пересборка: ${dt(job.done_at)}.` : ''}</div>`;
+    const subsOn = can && d.subs && (d.subs.shorts || d.subs.srt);
     b.innerHTML = `${head}
+      ${subsOn ? `<div class="mt-subs">
+        <div class="mt-subs-h">Исправить слово в субтитрах <span class="faint">${d.subs.shorts ? 'шортсов (они вшиты в видео) и выпуска' : 'выпуска'}</span></div>
+        <div class="mt-subs-f"><input class="input" data-mt-sf maxlength="60" placeholder="Как сейчас: Ефримов">
+          <span class="mt-arrow" aria-hidden="true">→</span>
+          <input class="input" data-mt-st maxlength="60" placeholder="Как надо: Ефремов">
+          <button class="btn small" data-mt-sfind>Найти</button></div>
+        <div class="mt-subs-res" hidden></div><ul class="mt-subs-list"></ul></div>` : ''}
       ${(d.inserts || []).length ? `<ul class="mt-list">${d.inserts.map(row).join('')}</ul>` : '<div class="faint">Вставок в этом монтаже нет.</div>'}
       ${can ? `<div class="mt-foot"><span class="mt-count faint">Правок нет</span>
         <button class="btn" data-mt-reset hidden>Сбросить</button>
         ${d.edited ? '<button class="btn" data-mt-revert>Вернуть как было</button>' : ''}
         <button class="btn primary" data-mt-go disabled>Пересобрать с правками</button></div>` : ''}`;
     const list = b.querySelector('.mt-list');
+    const subsEd = [];  // исправления субтитров: {from, to}
     const foot = () => {
-      const n = Object.keys(ed).length;
+      const n = Object.keys(ed).length + subsEd.length;
       const cnt = b.querySelector('.mt-count');
       if (!cnt) return;
       cnt.textContent = n ? `Правок: ${n}` : 'Правок нет';
@@ -776,6 +792,7 @@
       if (x.at_ms === it.at_ms) delete x.at_ms;
       if (x.dur_ms === it.dur_ms) delete x.dur_ms;
       if (x.layout === it.layout) delete x.layout;
+      if (x.badge !== undefined && x.badge === (it.badge || '') && !x.replace) delete x.badge;
       if (!x.remove) delete x.remove;
       if (Object.keys(x).length) ed[i] = x; else delete ed[i];
     };
@@ -800,7 +817,12 @@
           case 'longer': x.dur_ms = Math.min(d.limits.dur_max, c.dur_ms + 1000); break;
           case 'pip': x.layout = c.layout === 'full' ? 'full_pip' : 'full'; break;
           case 'remove': x.remove = !c.remove; break;
-          case 'replace': { const r = btn.closest('.mt-row').querySelector('.mt-rep'); r.hidden = !r.hidden; if (!r.hidden) r.querySelector('input').focus(); return; }
+          case 'replace': case 'badge': {
+            const r = btn.closest('.mt-row').querySelector('.mt-rep');
+            r.hidden = btn.dataset.mt === 'replace' ? !r.hidden : false;
+            if (!r.hidden) r.querySelector(btn.dataset.mt === 'badge' ? '[data-mt-badge]' : '[data-mt-url]').focus();
+            return;
+          }
           case 'rep-url': {
             const u = btn.closest('.mt-row').querySelector('[data-mt-url]').value.trim();
             if (!/^https?:\/\//i.test(u)) { toast('Нужна ссылка на страницу — начинается с https://', true); return; }
@@ -814,6 +836,14 @@
         redraw(i);
       });
       list.addEventListener('change', ev => {
+        const bd = ev.target.closest('[data-mt-badge]');
+        if (bd) {
+          const i = Number(bd.closest('.mt-row').dataset.i), x = Object.assign({}, ed[i] || {});
+          x.badge = bd.value.replace(/\s+/g, ' ').trim();
+          setEd(i, x);
+          redraw(i);
+          return;
+        }
         const inp = ev.target.closest('[data-mt-file]');
         if (!inp || !inp.files || !inp.files[0]) return;
         const f = inp.files[0], i = Number(inp.closest('.mt-row').dataset.i);
@@ -825,22 +855,71 @@
         rd.readAsDataURL(f);
       });
     }
+    const sb = b.querySelector('.mt-subs');
+    if (sb) {
+      const sf = sb.querySelector('[data-mt-sf]'), st = sb.querySelector('[data-mt-st]'), res = sb.querySelector('.mt-subs-res');
+      const ul = sb.querySelector('.mt-subs-list');
+      const chips = () => {
+        ul.innerHTML = subsEd.map((x, k) => `<li><b>${esc(x.from)}</b> → ${x.to ? `<b>${esc(x.to)}</b>` : 'убрать'}
+          <button class="btn small" data-mt-sdel="${k}">Не исправлять</button></li>`).join('');
+        foot();
+      };
+      let found = null;
+      const find = async () => {
+        const q = sf.value.replace(/\s+/g, ' ').trim();
+        if (!q) { sf.focus(); return; }
+        res.hidden = false;
+        res.innerHTML = '<span class="faint">Ищу…</span>';
+        try { found = await api('/api/episodes/' + encodeURIComponent(id) + '/montage/subs?q=' + encodeURIComponent(q)); }
+        catch (err) { res.innerHTML = `<span class="warntxt">${esc(err.message)}</span>`; return; }
+        const to = st.value.replace(/\s+/g, ' ').trim();
+        if (!found.total) { res.innerHTML = `Не нашёл «${esc(found.q)}». Проверь, как слово написано в субтитрах.`; return; }
+        res.innerHTML = `<div>Нашёл: ${found.total}</div><ul>
+          ${(found.shorts || []).map(x => `<li>шортс «${esc(x.title)}» — ${x.n}: <span class="faint">${esc(x.example)}</span></li>`).join('')}
+          ${found.srt ? `<li>субтитры выпуска — ${found.srt}${found.srt_examples.length ? `: <span class="faint">${esc(found.srt_examples[0])}</span>` : ''}</li>` : ''}</ul>
+          <button class="btn small primary" data-mt-sadd>${to ? `Заменить на «${esc(to)}»` : 'Убрать это слово'}</button>`;
+      };
+      sb.addEventListener('keydown', ev => { if (ev.key === 'Enter' && ev.target.matches('input')) { ev.preventDefault(); find(); } });
+      sb.addEventListener('input', ev => { if (ev.target === sf) { found = null; res.hidden = true; } });
+      sb.addEventListener('click', ev => {
+        if (ev.target.closest('[data-mt-sfind]')) { find(); return; }
+        if (ev.target.closest('[data-mt-sadd]') && found) {
+          const x = { from: found.q, to: st.value.replace(/\s+/g, ' ').trim() };
+          const k = subsEd.findIndex(y => y.from.toLowerCase() === x.from.toLowerCase());
+          if (k >= 0) subsEd[k] = x; else subsEd.push(x);
+          sf.value = ''; st.value = ''; res.hidden = true; found = null;
+          chips();
+          return;
+        }
+        const del = ev.target.closest('[data-mt-sdel]');
+        if (del) { subsEd.splice(Number(del.dataset.mtSdel), 1); chips(); }
+      });
+      sb.chips = chips;
+    }
     const go = b.querySelector('[data-mt-go]');
     if (go) go.addEventListener('click', async () => {
       const ch = changes();
-      if (!ch.length) return;
+      if (!ch.length && !subsEd.length) return;
       const shots = ch.filter(x => x.replace && x.replace.url).length;
-      if (!confirm(`Пересобрать выпуск с правками (${ch.length})?${shots ? `\nСначала сделаю скрины страниц (${shots}) — это до минуты.` : ''}\nВидео заменится, когда сервер закончит, — итог придёт в Telegram.`)) return;
+      const ask = !ch.length ? `Пересобрать шортсы с исправленными субтитрами (${subsEd.length})?\nВидео выпуска останется как есть, итог придёт в Telegram.`
+        : `Пересобрать выпуск с правками (${ch.length + subsEd.length})?${shots ? `\nСначала сделаю скрины страниц (${shots}) — это до минуты.` : ''}\nВидео заменится, когда сервер закончит, — итог придёт в Telegram.`;
+      if (!confirm(ask)) return;
       go.disabled = true;
       go.textContent = shots ? 'Делаю скрины…' : 'Отправляю…';
       try {
-        await api('/api/episodes/' + encodeURIComponent(id) + '/montage', { body: { changes: ch.map(x => (x.replace ? { ...x, replace: { url: x.replace.url, b64: x.replace.b64, ext: x.replace.ext } } : x)) } });
+        await api('/api/episodes/' + encodeURIComponent(id) + '/montage', { body: { subs: subsEd,
+          changes: ch.map(x => (x.replace ? { ...x, replace: { url: x.replace.url, b64: x.replace.b64, ext: x.replace.ext } } : x)) } });
         toast('Пересобираю — итог придёт в Telegram');
         openEpisode(id);
       } catch (err) { toast(err.message, true); go.disabled = false; go.textContent = 'Пересобрать с правками'; }
     });
     const reset = b.querySelector('[data-mt-reset]');
-    if (reset) reset.addEventListener('click', () => { Object.keys(ed).forEach(k => delete ed[k]); list.innerHTML = d.inserts.map(row).join(''); foot(); });
+    if (reset) reset.addEventListener('click', () => {
+      Object.keys(ed).forEach(k => delete ed[k]);
+      subsEd.length = 0;
+      if (list) list.innerHTML = d.inserts.map(row).join('');
+      if (sb) sb.chips(); else foot();
+    });
     const back = b.querySelector('[data-mt-revert]');
     if (back) back.addEventListener('click', async () => {
       if (!confirm('Вернуть выпуск как был собран автоматически? Все правки монтажного стола пропадут, выпуск пересоберётся.')) return;

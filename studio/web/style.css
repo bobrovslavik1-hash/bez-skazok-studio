@@ -487,14 +487,33 @@ details.mt:not([open]) > summary::after { transform: rotate(-90deg); }
 .warntxt { color: var(--warn); }
 .mt-act { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
 .mt-rep[hidden], .mt-now[hidden] { display: none; }
-.mt-rep { grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: 6px; align-items: center; padding-top: 4px; }
+.mt-rep { grid-column: 1 / -1; display: grid; gap: 8px; padding-top: 4px; }
+.mt-rep-row, .mt-field { display: flex; flex-wrap: wrap; gap: 6px 10px; align-items: center; }
+.mt-field { font-size: 13px; color: var(--muted); }
 .mt-rep .input { flex: 1 1 240px; min-width: 0; }
+.mt-badge { background: none; border: 0; padding: 0; font: inherit; color: inherit; cursor: pointer; text-align: left;
+  text-decoration: underline dotted; text-underline-offset: 3px; }
+.mt-badge:hover { color: var(--text); }
+.mt-subs { margin: 0 0 12px; padding: 10px 12px; border: 1px dashed var(--line); border-radius: var(--radius-sm); }
+.mt-subs-h { font-weight: 600; font-size: 14px; margin-bottom: 8px; }
+.mt-subs-h .faint { font-weight: 400; font-size: 12.5px; }
+.mt-subs-f { display: flex; flex-wrap: wrap; gap: 6px 8px; align-items: center; }
+.mt-subs-f .input { flex: 1 1 180px; min-width: 0; }
+.mt-arrow { color: var(--muted); }
+.mt-subs-res { margin-top: 8px; font-size: 13px; }
+.mt-subs-res ul { margin: 4px 0 8px; padding-left: 18px; }
+.mt-subs-res li { overflow-wrap: anywhere; }
+.mt-subs-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+.mt-subs-list:not(:empty) { margin-top: 8px; }
+.mt-subs-list li { display: flex; flex-wrap: wrap; gap: 6px 10px; align-items: center; font-size: 13.5px; }
+.mt-subs-list li .btn { margin-left: auto; }
 .mt-foot { position: sticky; bottom: 0; z-index: 1; display: flex; flex-wrap: wrap; gap: 8px; align-items: center; justify-content: flex-end; margin-top: 10px; padding: 10px 0 4px; background: linear-gradient(to top, var(--panel) 75%, transparent); }
 .mt-foot .mt-count { margin-right: auto; }
 @media (max-width: 560px) {
   .mt-row { grid-template-columns: 88px 1fr; }
   .mt-thumb { width: 88px; }
   .mt-act { grid-column: 1 / -1; }
+  .mt-arrow { display: none; }
 }
 .ep-shorts figure { margin: 0; min-width: 0; }
 .ep-shorts video { display: block; width: 100%; aspect-ratio: 9 / 16; background: #000; border-radius: var(--radius-sm); }

@@ -1,8 +1,9 @@
 """Монтажный стол: поправить готовый монтаж без пересъёмки.
 
 Что можно с каждой вставкой: убрать, сдвинуть на секунду раньше или позже, сделать длиннее или короче, показать ведущего
-в углу поверх неё или убрать его, заменить — скрином страницы по ссылке или своим файлом (картинка или короткое видео).
-Потом «Пересобрать с правками».
+в углу поверх неё или убрать его, заменить — скрином страницы по ссылке или своим файлом (картинка или короткое видео),
+поправить подпись на кадре. И исправить слово в субтитрах шортсов (они вшиты в видео; в субтитрах выпуска — тоже).
+Потом «Пересобрать с правками». Если поправлены только субтитры, сам выпуск не пересобирается (only_shorts).
 
 Как устроено. План монтажа (EDL) лежит в k_episodes.edl — его сохраняет К5 перед рендером. Студия собирает новый план
 (k_episodes.edl_next) и отдаёт серверу монтажа (POST /render) — тот же путь, что у К5: исходник raw.mp4 на сервере,
@@ -37,6 +38,8 @@ UPLOAD_EXT = {'png': 'png', 'jpg': 'jpg', 'jpeg': 'jpg', 'webp': 'webp', 'mp4': 
 MAX_UPLOAD = 25 * 1024 * 1024
 DUR = (1000, 30000)       # вставка: от 1 до 30 секунд
 MAX_CHANGES = 600
+SUBS_MAX = 50             # замен в субтитрах за раз
+_PUNCT = '.,!?…:;«»„“”"\'()[]—–-'
 JOB_TIMEOUT = 6 * 3600    # столько ждём сервер монтажа, потом считаем, что пересборка не удалась
 EID_RE = re.compile(r'^[A-Za-z0-9._-]{3,120}$')
 _wake = threading.Event()
@@ -154,8 +157,9 @@ def view(eid: str) -> dict:
     why = _why_not(r)
     return {
         'id': eid, 'status': r['status'], 'can_edit': not why, 'reason': why, 'inserts': ins,
-        'total_ms': _total_ms(edl, m), 'edited': bool(r.get('edited')), 'limits': {'dur_min': DUR[0], 'dur_max': DUR[1], 'upload_mb': MAX_UPLOAD // 1048576},
-        'job': {k: job.get(k) for k in ('status', 'at', 'by', 'done_at', 'error', 'changes', 'revert', 'partial')} if job else None,
+        'total_ms': _total_ms(edl, m), 'edited': bool(r.get('edited')),
+        'subs': {'shorts': sum(1 for s in (edl.get('shorts') or []) if isinstance(s, dict) and s.get('words')), 'srt': bool(edl.get('srt'))}, 'limits': {'dur_min': DUR[0], 'dur_max': DUR[1], 'upload_mb': MAX_UPLOAD // 1048576},
+        'job': {k: job.get(k) for k in ('status', 'at', 'by', 'done_at', 'error', 'changes', 'revert', 'partial', 'only_shorts')} if job else None,
     }
 
 
@@ -170,7 +174,7 @@ def _new_asset(eid: str, i: int, rp: dict) -> tuple[str, str]:
                                                                 'highlight': str(rp.get('highlight') or '')[:200]})
         if not d.get('path'):
             raise MontageError('Сервер монтажа не сделал скрин этой страницы')
-        return d['path'], str(d.get('credit') or '')
+        return d['path'], str(rp.get('badge') or d.get('credit') or '')[:90]
     raw = rp.get('b64')
     if raw:
         ext = UPLOAD_EXT.get(str(rp.get('ext') or '').lower().lstrip('.'))
@@ -188,6 +192,93 @@ def _new_asset(eid: str, i: int, rp: dict) -> tuple[str, str]:
             raise MontageError('Сервер монтажа не сохранил файл')
         return d['path'], str(rp.get('badge') or '')[:90]
     raise MontageError('Для замены нужна ссылка на страницу или свой файл')
+
+
+def _norm(w) -> str:
+    return str(w or '').strip(_PUNCT + ' ').lower().replace('ё', 'е')
+
+
+def _word_re(text: str):
+    """Слово или фраза целиком, без учёта регистра и «е/ё»."""
+    part = lambda w: ''.join('[её]' if ch in 'еёЕЁ' else re.escape(ch) for ch in w)
+    return re.compile(r'(?<!\w)' + r'\s+'.join(part(w) for w in text.split()) + r'(?!\w)', re.I)
+
+
+def _srt_lines(srt: str):
+    """Строки субтитров с текстом (без номеров и времени): (номер строки, текст)."""
+    for k, line in enumerate(str(srt or '').split('\n')):
+        if '-->' not in line and not re.fullmatch(r'\s*\d*\s*', line):
+            yield k, line
+
+
+def _srt_fix(srt: str, frm: str, to: str) -> tuple[str, int]:
+    lines, rx, n = str(srt or '').split('\n'), _word_re(frm), 0
+    for k, line in list(_srt_lines(srt)):
+        lines[k], c = rx.subn(lambda m: to, line)
+        n += c
+    return '\n'.join(lines), n
+
+
+def _seq(words: list, frm: str) -> list:
+    """Где в словах шортса стоит фраза: номера первых слов."""
+    ft = [_norm(x) for x in frm.split() if _norm(x)]
+    if not ft:
+        return []
+    hits, k = [], 0
+    while k + len(ft) <= len(words):
+        if all(isinstance(w, dict) and _norm(w.get('w')) == t for w, t in zip(words[k:k + len(ft)], ft)):
+            hits.append(k)
+            k += len(ft)
+        else:
+            k += 1
+    return hits
+
+
+def _words_fix(words: list, frm: str, to: str) -> tuple[list, int]:
+    """Заменить фразу в словах шортса; знаки препинания вокруг сохраняются, время — от первого до последнего слова."""
+    words = [w for w in (words or []) if isinstance(w, dict)]
+    hits = set(_seq(words, frm))
+    size = len([x for x in frm.split() if _norm(x)])
+    out, k = [], 0
+    while k < len(words):
+        if k not in hits:
+            out.append(words[k])
+            k += 1
+            continue
+        first, last = str(words[k].get('w') or ''), str(words[k + size - 1].get('w') or '')
+        lead, tail = first[:len(first) - len(first.lstrip(_PUNCT))], last[len(last.rstrip(_PUNCT)):]
+        if to.strip():
+            out.append(dict(words[k], w=lead + to.strip() + tail, e=words[k + size - 1].get('e', words[k].get('e'))))
+        k += size
+    return out, len(hits)
+
+
+def subs_find(eid: str, q: str) -> dict:
+    """Где в субтитрах стоит слово — до замены, чтобы было видно, что поменяется."""
+    r = _ep(eid)
+    edl = r.get('edl') or {}
+    q = ' '.join(str(q or '').split())[:60]
+    if not _norm(q):
+        raise MontageError('Напиши слово, которое надо найти')
+    rx = _word_re(q)
+    srt_n, srt_ex = 0, []
+    for _, line in _srt_lines(edl.get('srt')):
+        c = len(rx.findall(line))
+        if c:
+            srt_n += c
+            if len(srt_ex) < 3:
+                srt_ex.append(line.strip()[:140])
+    shorts = []
+    for s in edl.get('shorts') or []:
+        if not isinstance(s, dict):
+            continue
+        words = [w for w in (s.get('words') or []) if isinstance(w, dict)]
+        hits = _seq(words, q)
+        if hits:
+            k = hits[0]
+            ex = ' '.join(str(w.get('w') or '') for w in words[max(0, k - 4):k + len(q.split()) + 4])
+            shorts.append({'title': str(s.get('title') or s.get('name') or 'шортс'), 'n': len(hits), 'example': ex[:160]})
+    return {'q': q, 'srt': srt_n, 'srt_examples': srt_ex, 'shorts': shorts, 'total': srt_n + sum(x['n'] for x in shorts)}
 
 
 def _busy(eid: str) -> str:
@@ -212,7 +303,7 @@ def _start(r: dict, new_edl: dict, actor: str, n: int, revert: bool = False) -> 
     if not jid:
         raise MontageError('Сервер монтажа не принял пересборку')
     job = {'jid': str(jid), 'status': 'running', 'at': _now().isoformat(), 'by': actor, 'changes': n, 'prev_status': r['status'],
-           'revert': revert}
+           'revert': revert, 'only_shorts': bool(new_edl.get('only_shorts'))}
     done = db.q1("UPDATE k_episodes SET edl_next = %s::jsonb, edl_auto = COALESCE(edl_auto, edl), status = 'rendering', "
                  "meta = COALESCE(meta, '{}'::jsonb) || jsonb_build_object('montage_job', %s::jsonb) "
                  "|| CASE WHEN edl_auto IS NULL THEN jsonb_build_object('stats_auto', COALESCE(meta->'stats', '{}'::jsonb)) ELSE '{}'::jsonb END, "
@@ -236,10 +327,12 @@ def apply(eid: str, body: dict, actor: str = 'owner') -> dict:
     busy = _busy(eid)
     if busy:
         raise MontageError(busy)
-    changes = body.get('changes')
-    if not isinstance(changes, list) or not changes:
+    changes, subs = body.get('changes') or [], body.get('subs') or []
+    if not isinstance(changes, list) or not isinstance(subs, list):
+        raise MontageError('Неверный запрос')
+    if not changes and not subs:
         raise MontageError('Нет правок')
-    if len(changes) > MAX_CHANGES:
+    if len(changes) > MAX_CHANGES or len(subs) > SUBS_MAX:
         raise MontageError('Слишком много правок за раз')
     edl = r.get('edl') or {}
     total = _total_ms(edl, r.get('meta') or {})
@@ -272,17 +365,43 @@ def apply(eid: str, body: dict, actor: str = 'owner') -> dict:
         if 'layout' in ch:
             it['layout'] = 'full' if ch['layout'] == 'full' else 'full_pip'
             touched = True
+        if 'badge' in ch:  # подпись на кадре; пусто — без подписи
+            it['badge'] = ' '.join(str(ch['badge'] or '').split())[:90]
+            touched = True
         if isinstance(ch.get('replace'), dict):
-            it['path'], it['badge'] = _new_asset(eid, i, ch['replace'])
+            rp = dict(ch['replace'], badge=it['badge']) if 'badge' in ch else ch['replace']
+            it['path'], it['badge'] = _new_asset(eid, i, rp)
             it['replaced'] = True
             touched = True
         if touched:
             it['edited'] = True
             n += 1
-    if not n:
-        raise MontageError('Правок нет — нечего пересобирать')
     new_edl = dict(edl, inserts=[x for k, x in enumerate(inserts) if k not in removed])
-    return _start(r, new_edl, actor, n)
+    new_edl.pop('only_shorts', None)
+    fixed = 0
+    for p in subs:
+        frm = ' '.join(str((p or {}).get('from') or '').split())[:60]
+        to = ' '.join(str((p or {}).get('to') or '').split())[:60]
+        if not _norm(frm) or frm == to:
+            continue
+        srt, a = _srt_fix(str(new_edl.get('srt') or ''), frm, to)
+        b, shorts = 0, []
+        for sh in new_edl.get('shorts') or []:
+            if isinstance(sh, dict):
+                w, c = _words_fix(sh.get('words') or [], frm, to)
+                shorts.append(dict(sh, words=w))
+                b += c
+            else:
+                shorts.append(sh)
+        if not a + b:
+            raise MontageError(f'«{frm}» в субтитрах не нашлось — проверь написание')
+        new_edl['srt'], new_edl['shorts'] = srt, shorts
+        fixed += 1
+    if not n + fixed:
+        raise MontageError('Правок нет — нечего пересобирать')
+    if fixed and not n:  # только субтитры: сам выпуск (в нём субтитров нет) не пересобираем, только шортсы
+        new_edl['only_shorts'] = True
+    return _start(r, new_edl, actor, n + fixed)
 
 
 def revert(eid: str, actor: str = 'owner') -> dict:
@@ -367,6 +486,9 @@ def poll_once() -> int:
         elif partial:
             db.notify(f'⚠️ Монтажный стол: «{r["title"]}» — видео пересобрано, но потом сервер споткнулся: {job["error"][:200]}. '
                       'Шортсы или обложка могли остаться старыми — посмотри в Студии.', 'episode')
+        elif job.get('only_shorts'):
+            db.notify(f'⚠️ Монтажный стол: «{r["title"]}» — шортсы с исправленными субтитрами не собрались: {job["error"][:200]}. '
+                      'Видео выпуска не трогал; правку можно повторить.', 'episode')
         else:
             db.notify(f'⚠️ Монтажный стол: «{r["title"]}» не пересобрался — {job["error"][:200]}. Прежний вариант на месте.', 'episode')
         finished += 1

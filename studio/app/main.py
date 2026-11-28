@@ -248,6 +248,12 @@ def episode_montage(eid: str, user=Depends(auth.current_user)):
     return _montage_errors(montage.view, eid)
 
 
+@app.get('/api/episodes/{eid}/montage/subs')
+def episode_montage_subs(eid: str, q: str = '', user=Depends(auth.current_user)):
+    """Монтажный стол: где в субтитрах стоит слово (шортсы и выпуск) — до замены."""
+    return _montage_errors(montage.subs_find, eid, q)
+
+
 @app.post('/api/episodes/{eid}/montage')
 async def episode_montage_apply(eid: str, request: Request, user=Depends(auth.current_user)):
     """Применить правки (убрать, сдвинуть, длина, ведущий в углу, замена) и пересобрать выпуск."""

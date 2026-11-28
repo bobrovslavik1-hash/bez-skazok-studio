@@ -511,8 +511,9 @@ def do_render(ep, edl):
     with open(script, 'w', encoding='utf-8') as f:
         f.write(';\n'.join(fl))
     final = os.path.join(out, 'final.mp4')
-    sh(args + ['-filter_complex_script', script, '-map', '[vout]', '-map', '[aout]'] + ENC + [final + '.tmp.mp4'], timeout=6 * 3600)
-    os.replace(final + '.tmp.mp4', final)
+    if not (edl.get('only_shorts') and os.path.isfile(final)):  # монтажный стол поправил только субтитры шортсов — выпуск не трогаем
+        sh(args + ['-filter_complex_script', script, '-map', '[vout]', '-map', '[aout]'] + ENC + [final + '.tmp.mp4'], timeout=6 * 3600)
+        os.replace(final + '.tmp.mp4', final)
     srt = os.path.join(out, 'subs.srt')
     with open(srt, 'w', encoding='utf-8') as f:
         f.write(edl.get('srt') or '')
@@ -526,7 +527,8 @@ def do_render(ep, edl):
         make_ass(s.get('words') or [], assf)
         g = ("[0:v]fps=%d,select='%s',setpts=N/%d/TB,scale=-2:1920,crop=1080:1920,setsar=1,subtitles=%s,format=yuv420p[v];[0:a]%s[a]"
              % (FPS, e2, FPS, assf, cut_audio(e2)))
-        sh(['ffmpeg', '-y', '-v', 'error', '-i', raw, '-filter_complex', g, '-map', '[v]', '-map', '[a]'] + ENC + [path], timeout=3600)
+        sh(['ffmpeg', '-y', '-v', 'error', '-i', raw, '-filter_complex', g, '-map', '[v]', '-map', '[a]'] + ENC + [path + '.tmp.mp4'], timeout=3600)
+        os.replace(path + '.tmp.mp4', path)  # упал на середине — прежний шортс остаётся целым
         shorts.append({'name': name, 'url': pub(path)})
     dur = probe(final)['duration']
     thumb = os.path.join(out, 'thumb.jpg')
