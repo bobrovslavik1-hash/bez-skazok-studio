@@ -74,6 +74,30 @@
     cancel: { label: 'Отменить', tone: '', ask: 'Отменить выпуск? Он не будет опубликован; файлы на сервере удалятся сами через 7 дней.', askScript: 'Отменить сценарий? Запись к нему больше не привяжется.', done: 'Отменено' },
   };
   const tc = ms => { const s = Math.max(0, Math.round((ms || 0) / 1000)); return Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0'); };
+  // длительность этапа: 45 с · 14 мин · 1 ч 05 мин · 2 дн 3 ч
+  const took = sec => {
+    if (sec == null) return '—';
+    if (sec < 60) return sec + ' с';
+    const m = Math.round(sec / 60);
+    if (m < 60) return m + ' мин';
+    const h = Math.floor(m / 60);
+    if (h < 48) return h + ' ч' + (m % 60 ? ' ' + String(m % 60).padStart(2, '0') + ' мин' : '');
+    return Math.floor(h / 24) + ' дн' + (h % 24 ? ' ' + (h % 24) + ' ч' : '');
+  };
+  const DELIVERY_T = { opinion: 'С моим мнением', facts: 'Только новости' };
+  // «Как прошёл выпуск»: этапы со временем и сколько что длилось (учёт ведёт база с 28.11)
+  const reportSection = rp => {
+    if (!rp || !(rp.steps || []).length) return '';
+    const kv = [];
+    if (rp.delivery) kv.push(['Подача', esc(DELIVERY_T[rp.delivery] || rp.delivery)]);
+    rp.steps.forEach(s => kv.push([esc(s.label), dt(s.at)]));
+    if (rp.montage_s != null) kv.push(['Монтаж занял', took(rp.montage_s)]);
+    if (rp.review_s != null) kv.push(['Проверка заняла', took(rp.review_s)]);
+    if (rp.publish_s != null) kv.push(['Публикация заняла', took(rp.publish_s)]);
+    if (rp.total_s != null) kv.push(['От сценария до эфира', took(rp.total_s)]);
+    if (rp.shorts_ready != null && rp.shorts_planned) kv.push(['Шортсы', rp.shorts_ready + ' из ' + rp.shorts_planned]);
+    return `<div class="section-t">Как прошёл выпуск</div><dl class="kv">${kv.map(([k, v]) => `<dt>${k}</dt><dd>${v}</dd>`).join('')}</dl>`;
+  };
   // удалить выпуск или сценарий целиком (база, вставки, файлы на сервере); пока идёт монтаж или публикация — нельзя
   const EP_BUSY = ['recording', 'rendering', 'publishing', 'publish_requested', 'redo'];
   const mbText = mb => mb >= 1024 ? (mb / 1024).toFixed(1).replace('.', ',') + ' ГБ' : mb + ' МБ';
@@ -679,6 +703,7 @@
           <dt>Субтитры</dt><dd><a href="${esc(v.subs_url)}" target="_blank" rel="noopener">subs.srt</a></dd></dl>
         ${v.chapters_text ? `<div class="section-t">Главы для описания</div><pre class="json">${esc(v.chapters_text)}</pre>` : ''}` : ''}
       ${v ? '' : pubSection(e)}
+      ${reportSection(e.report)}
       <div class="section-t">Главное</div>
       <dl class="kv"><dt>Создан</dt><dd>${dt(e.created_at)}</dd><dt>Обновлён</dt><dd>${dt(e.updated_at)}</dd>
         ${e.script_id ? `<dt>Сценарий</dt><dd class="mono">${esc(e.script_id)}</dd>` : ''}
@@ -958,7 +983,7 @@
     let x = isNew ? null : all.find(r => r.id === params.get('id'));
     if (!isNew && !x) { view.lastElementChild.outerHTML = failBox('Нет такого направления'); return; }
     const blank = { id: '', name: '', enabled: true, mode: 'free', language: 'ru', minutes: 15, words_per_min: 130, shorts: 3, sources_on: false,
-      style_prompt: '', inserts: ['card', 'quote', 'number', 'map', 'stock', 'wikimedia'], stock_sources: [], cut_pauses: true, pause_cut_ms: 700,
+      style_prompt: '', delivery: 'opinion', inserts: ['card', 'quote', 'number', 'map', 'stock', 'wikimedia'], stock_sources: [], cut_pauses: true, pause_cut_ms: 700,
       pause_keep_ms: 150, cut_retakes: true, publish_youtube: false, youtube_privacy: 'private', publish_facebook: false, publish_threads: false,
       brand_color: '#111111', accent_color: '#E53935',
       logo_url: '', drive_folder_id: '', folder_url: '' };
@@ -984,6 +1009,8 @@
         ${row('Темп чтения, слов в минуту', num('words_per_min', v.words_per_min, 60, 250, 5), 'по нему считается длина текста и скорость суфлёра')}
         ${row('Шортсов', num('shorts', v.shorts, 0, 5))}
         ${row('Собирать новости из источников', sw('sources_on', v.sources_on), 'для режима «Новости из источников»')}
+        ${row('Подача', sel('delivery', d.delivery || { opinion: 'Новости с моим мнением', facts: 'Только новости, без мнения' }, v.delivery || 'opinion'),
+          'для новостей. С мнением — после фактов разбор и вывод ведущего, как у Наки. Только новости — факты и почему это важно, без оценок. Действует на новые сценарии')}
         ${row('Стиль', `<textarea class="input df-area" data-k="style_prompt" rows="5" placeholder="Как писать: тон, структура, чего избегать">${esc(v.style_prompt || '')}</textarea>`, 'это читает сценарист (Claude) перед каждым текстом')}
       </div></div>
       <div class="card"><div class="card-h"><h2>Вставки</h2></div><div class="card-b">

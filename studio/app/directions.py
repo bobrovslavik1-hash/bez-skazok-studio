@@ -16,6 +16,7 @@ KINDS = {  # тип вставки → подпись в Студии
 MODES = {'sources': 'Новости из источников', 'topic': 'Тема по запросу', 'free': 'Своё видео без сценария'}
 PRIVACY = {'private': 'Ограниченный доступ', 'unlisted': 'Доступ по ссылке', 'public': 'Открытый доступ'}
 LANGS = {'ru': 'Русский', 'uk': 'Украинский', 'en': 'Английский'}
+DELIVERY = {'opinion': 'Новости с моим мнением', 'facts': 'Только новости, без мнения'}
 STOCK = ('coverr', 'wikimedia', 'openverse', 'nasa')
 
 FLAGS = ('enabled', 'sources_on', 'ai_images', 'publish_youtube', 'publish_telegram', 'publish_tiktok', 'cut_pauses', 'cut_retakes',
@@ -44,7 +45,8 @@ INTS = {'minutes': (1, 90), 'words_per_min': (60, 250), 'shorts': (0, 5), 'pause
 # порядок полей — как в бывшей таблице (новые поля — в конце): так узлы n8n получают ровно то, что получали раньше
 FIELDS = ('id', 'enabled', 'name', 'mode', 'sources_on', 'inserts', 'ai_images', 'language', 'minutes', 'words_per_min', 'shorts',
           'drive_folder_id', 'brand_color', 'accent_color', 'logo_url', 'style_prompt', 'publish_youtube', 'publish_telegram',
-          'publish_tiktok', 'youtube_privacy', 'stock_sources', 'cut_pauses', 'pause_cut_ms', 'pause_keep_ms', 'cut_retakes')
+          'publish_tiktok', 'youtube_privacy', 'stock_sources', 'cut_pauses', 'pause_cut_ms', 'pause_keep_ms', 'cut_retakes',
+          'delivery')
 
 N8N_SQL = ("SELECT (row_number() OVER (ORDER BY sort, created_at, id) + 1)::int AS row_number, " + ', '.join(FIELDS) +
            " FROM studio_directions WHERE workspace_id = 'main' ORDER BY sort, created_at, id")
@@ -174,6 +176,10 @@ def _clean(data: dict) -> dict:
         if bad:
             raise ValueError('Хэштег — одно слово из букв и цифр, можно слитно: ' + ', '.join(bad[:3]))
         out['hashtags'] = ' '.join(tags(raw))
+    if 'delivery' in data:
+        if data['delivery'] not in DELIVERY:
+            raise ValueError('Подача: «с мнением» или «только новости»')
+        out['delivery'] = data['delivery']
     if 'youtube_privacy' in data:
         if data['youtube_privacy'] not in PRIVACY:
             raise ValueError('Неизвестный доступ к видео')
@@ -223,5 +229,5 @@ def meta() -> dict:
     """Справочники для формы."""
     from . import meta  # подключены ли Facebook и Threads — чтобы в форме не включить публикацию «в никуда»
     st = meta.status()
-    return {'kinds': KINDS, 'modes': MODES, 'privacy': PRIVACY, 'langs': LANGS, 'stock': list(STOCK),
+    return {'kinds': KINDS, 'modes': MODES, 'privacy': PRIVACY, 'langs': LANGS, 'delivery': DELIVERY, 'stock': list(STOCK),
             'connected': {'facebook': st['facebook']['connected'], 'threads': st['threads']['connected']}}

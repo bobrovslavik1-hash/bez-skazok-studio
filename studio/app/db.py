@@ -64,6 +64,29 @@ CREATE TABLE IF NOT EXISTS studio_directions (
 ALTER TABLE studio_directions ADD COLUMN IF NOT EXISTS publish_facebook TEXT NOT NULL DEFAULT 'FALSE';
 ALTER TABLE studio_directions ADD COLUMN IF NOT EXISTS publish_threads TEXT NOT NULL DEFAULT 'FALSE';
 ALTER TABLE studio_directions ADD COLUMN IF NOT EXISTS hashtags TEXT;
+-- подача новостей: opinion — разбор и мнение ведущего (как сейчас), facts — только факты без оценок (эксперимент Alex 28.11)
+ALTER TABLE studio_directions ADD COLUMN IF NOT EXISTS delivery TEXT NOT NULL DEFAULT 'opinion';
+-- учёт выпуска: база сама отмечает время каждой смены статуса (meta.timeline) — кто бы его ни менял: n8n или Студия.
+-- Таблицу k_episodes создаёт конвейер; если её ещё нет или прав не хватает — пропускаем, Студия запускается всё равно.
+DO $$
+BEGIN
+  IF to_regclass('public.k_episodes') IS NOT NULL THEN
+    CREATE OR REPLACE FUNCTION studio_k_timeline() RETURNS trigger LANGUAGE plpgsql AS $f$
+    BEGIN
+      IF TG_OP = 'INSERT' OR NEW.status IS DISTINCT FROM OLD.status THEN
+        NEW.meta := COALESCE(NEW.meta, '{}'::jsonb) || jsonb_build_object('timeline',
+          COALESCE(NEW.meta->'timeline', '[]'::jsonb) || jsonb_build_array(jsonb_build_object('s', NEW.status, 'at', now())));
+      END IF;
+      RETURN NEW;
+    END $f$;
+    IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgname = 'studio_k_timeline' AND tgrelid = 'public.k_episodes'::regclass) THEN
+      CREATE TRIGGER studio_k_timeline BEFORE INSERT OR UPDATE OF status ON k_episodes
+        FOR EACH ROW EXECUTE FUNCTION studio_k_timeline();
+    END IF;
+  END IF;
+EXCEPTION WHEN OTHERS THEN
+  RAISE NOTICE 'учёт этапов выпуска не включён: %', SQLERRM;
+END $$;
 -- хэштеги канала новостей выбрал владелец 27.11 (меняются в «Направлениях»; NULL — значит ещё не ставили)
 UPDATE studio_directions SET hashtags = '#БезСказок #новости #война #политика' WHERE id = 'news' AND hashtags IS NULL;
 CREATE TABLE IF NOT EXISTS studio_accounts (

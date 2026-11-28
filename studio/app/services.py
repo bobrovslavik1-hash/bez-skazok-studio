@@ -134,6 +134,11 @@ def episode(eid: str) -> dict | None:
     out['actions'] = allowed_actions(r)
     out['video'] = _video(r.get('meta') or {}, r.get('preview_url'))
     out['social_todo'] = _social_todo(r, out['video'])
+    try:
+        out['report'] = _report(r, sid, out['video'], out['script'] or {})
+    except Exception as e:  # учёт не должен ломать карточку выпуска
+        log.warning('учёт выпуска %s: %s', eid, e)
+        out['report'] = None
     from . import pubtexts  # тексты публикации: страница выпуска
     try:
         out['pub'] = pubtexts.view(eid)
@@ -141,6 +146,51 @@ def episode(eid: str) -> dict | None:
         log.warning('тексты публикации %s: %s', eid, e)
         out['pub'] = None
     return out
+
+
+def _timeline(meta) -> list:
+    out = []
+    for t in (meta or {}).get('timeline') or []:
+        if isinstance(t, dict) and t.get('s') and t.get('at'):
+            out.append({'s': str(t['s']), 'at': str(t['at'])})
+    return out
+
+
+def _report(r: dict, sid: str | None, video: dict | None, sc: dict) -> dict:
+    """Как прошёл выпуск: этапы со временем (meta.timeline сценария и записи), сколько длились монтаж, проверка и публикация,
+    сколько шортсов готово, какая была подача. Учёт ведёт сама база (триггер studio_k_timeline) — с 28.11."""
+    sm = {}
+    if sid:
+        s = db.q1('SELECT meta FROM k_episodes WHERE id = %s', (sid,))
+        sm = (s or {}).get('meta') or {}
+    m = r.get('meta') or {}
+    tl = _timeline(sm) + _timeline(m)
+    first = {}
+    for t in tl:
+        first.setdefault(t['s'], t['at'])
+
+    def gap(a_keys, b_keys):
+        a = next((first[k] for k in a_keys if k in first), None)
+        b = next((first[k] for k in b_keys if k in first), None)
+        if not a or not b:
+            return None
+        try:
+            sec = (dt.datetime.fromisoformat(b) - dt.datetime.fromisoformat(a)).total_seconds()
+        except ValueError:
+            return None
+        return int(sec) if sec >= 0 else None
+
+    planned = (sc or {}).get('shorts')
+    return {
+        'steps': [{'status': t['s'], 'label': STATUS.get(t['s'], t['s']), 'at': t['at']} for t in tl][-24:],
+        'montage_s': gap(('recording',), ('preview_ready', 'partial')),
+        'review_s': gap(('preview_ready', 'partial'), ('publish_requested',)),
+        'publish_s': gap(('publish_requested',), ('published',)),
+        'total_s': gap(('script_ready', 'recording'), ('published',)),
+        'delivery': sm.get('delivery') or m.get('delivery'),
+        'shorts_ready': len((video or {}).get('shorts') or []) if video else None,
+        'shorts_planned': planned if isinstance(planned, int) else None,
+    }
 
 
 def _social_todo(r: dict, video: dict | None) -> list:
