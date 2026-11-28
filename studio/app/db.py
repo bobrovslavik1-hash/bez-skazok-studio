@@ -70,6 +70,17 @@ ALTER TABLE studio_directions ADD COLUMN IF NOT EXISTS delivery TEXT NOT NULL DE
 ALTER TABLE studio_directions ADD COLUMN IF NOT EXISTS publish_slots TEXT NOT NULL DEFAULT '';
 -- бриф для вставок: «о чём эти видео и какие вставки нужны» — главная подсказка монтажу для видео без сценария (К5)
 ALTER TABLE studio_directions ADD COLUMN IF NOT EXISTS insert_brief TEXT NOT NULL DEFAULT '';
+-- статистика выпусков по площадкам (stats.py): просмотры/лайки/комментарии, обновляются раз в несколько часов.
+-- comments_data — место под будущий сбор комментариев (пока не используется)
+CREATE TABLE IF NOT EXISTS studio_stats (
+  workspace_id TEXT NOT NULL DEFAULT 'main',
+  episode_id TEXT NOT NULL,
+  platform TEXT NOT NULL,
+  views BIGINT, likes BIGINT, comments BIGINT,
+  extra JSONB NOT NULL DEFAULT '{}'::jsonb,
+  comments_data JSONB,
+  checked_at TIMESTAMPTZ DEFAULT now(),
+  PRIMARY KEY (workspace_id, episode_id, platform));
 -- оформление: своя картинка для обоев (фото кота и т. п.). В копию базы не входит — это не данные конвейера
 CREATE TABLE IF NOT EXISTS studio_assets (
   workspace_id TEXT NOT NULL DEFAULT 'main', key TEXT NOT NULL, mime TEXT NOT NULL, data BYTEA NOT NULL, size INT NOT NULL,

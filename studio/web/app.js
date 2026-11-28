@@ -64,6 +64,10 @@
     phone: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="6.5" y="2.5" width="11" height="19" rx="2.5"/><path d="M10.5 18.5h3"/></svg>',
     palette: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3a9 9 0 1 0 0 18c1.4 0 2-1 1.6-2.1-.5-1.3.2-2.4 1.6-2.4H17a4 4 0 0 0 4-4c0-5-4-9.5-9-9.5z"/><circle cx="7.5" cy="11" r="1.2" fill="currentColor"/><circle cx="10.5" cy="7" r="1.2" fill="currentColor"/><circle cx="15.5" cy="7.5" r="1.2" fill="currentColor"/></svg>',
     upload: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M12 16V4M7 8.5l5-5 5 5M5 20h14"/></svg>',
+    stats: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20V11M10 20V5M16 20v-6M3.5 20h17"/></svg>',
+    eye: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7-10-7-10-7z"/><circle cx="12" cy="12" r="2.8"/></svg>',
+    heart: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20s-7-4.5-9.2-9C1.3 8 2.8 4.8 6 4.8c2 0 3.2 1.2 4 2.4.8-1.2 2-2.4 4-2.4 3.2 0 4.7 3.2 3.2 6.2C19 15.5 12 20 12 20z"/></svg>',
+    chat: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 5.5h16a1.5 1.5 0 0 1 1.5 1.5v8a1.5 1.5 0 0 1-1.5 1.5H9l-4 3v-3H4A1.5 1.5 0 0 1 2.5 15V7A1.5 1.5 0 0 1 4 5.5z"/></svg>',
   };
   // коты Студии — свои рисунки: рыжий талисман сидит в меню, спит там, где пусто, выглядывает на входе
   const CAT = {
@@ -75,7 +79,7 @@
   const NAV = [
     ['#/', 'Обзор', I.home], ['#/episodes', 'Выпуски', I.film], ['#/prompter', 'Суфлёр', I.prompter], ['#/logs', 'Журнал', I.log],
     ['#/costs', 'Расходы', I.coin], ['#/directions', 'Направления', I.dirs], ['#/connections', 'Подключения', I.plug], ['#/sources', 'Источники', I.rss],
-    ['#/settings', 'Настройки', I.gear],
+    ['#/stats', 'Статистика', I.stats], ['#/settings', 'Настройки', I.gear],
   ];
   const EP_TONE = {
     preview_ready: 'ok', published: 'ok', used: 'ok', partial: 'warn', recording: 'warn live', rendering: 'warn live',
@@ -311,7 +315,7 @@
   // ---------- каркас ----------
   // меню по группам: каждый день — выпуски и суфлёр; настройка — направления, источники, площадки; служебное — журнал, расходы
   const NAV_GROUPS = [['Работа', ['#/', '#/episodes', '#/prompter']], ['Настройка', ['#/directions', '#/sources', '#/connections']],
-    ['Служебное', ['#/logs', '#/costs', '#/settings']]];
+    ['Служебное', ['#/stats', '#/logs', '#/costs', '#/settings']]];
   // счётчик у пункта меню — где ждут тебя: выпуски на проверке, сценарии на запись (янтарь), неразобранные ошибки (красный)
   const NAV_CNT = { '#/episodes': 'review', '#/prompter': 'script', '#/logs': 'errors' };
   const NAV_CNT_T = { review: 'ждут проверки', script: 'ждут записи', errors: 'ошибки не разобраны' };
@@ -1573,6 +1577,62 @@
   async function copyText(t) {
     try { await navigator.clipboard.writeText(t); toast('Скопировано'); } catch (e) { window.prompt('Скопируй адрес:', t); }
   }
+  // ---------- Статистика ----------
+  const fmtN = n => n == null ? null : n >= 1e6 ? (n / 1e6).toFixed(1) + 'M' : n >= 1e4 ? Math.round(n / 1e3) + 'K' : n >= 1e3 ? (n / 1e3).toFixed(1) + 'K' : String(n);
+  const statNum = (ic, n) => `<span class="st-num${n == null ? ' none' : ''}" title="${n == null ? 'ещё не собрано' : n}">${ic}${n == null ? '—' : fmtN(n)}</span>`;
+  function bindRefresh(view) {
+    const b = view.querySelector('[data-refresh]');
+    if (b) b.addEventListener('click', async () => {
+      b.disabled = true;
+      try { const r = await api('/api/stats/refresh', { method: 'POST' }); toast(`Обновил: Facebook ${r.facebook || 0}, Threads ${r.threads || 0}`); route(); }
+      catch (e) { toast(e.message, true); b.disabled = false; }
+    });
+  }
+  const refreshBtn = `<button class="btn" data-refresh>${I.refresh}Обновить числа</button>`;
+  const emptyStats = () => `<div class="card"><div class="empty"><b>Пока нет опубликованных выпусков</b>Статистика появится после первой публикации: куда ушёл выпуск и сколько набрал — просмотры, лайки, комментарии</div></div>`;
+
+  function statDirCard(g) {
+    return `<a class="card stat-dir" href="#/stats?dir=${encodeURIComponent(g.id)}" style="--dc:${esc(g.color || 'var(--faint)')}">
+      <div class="sd-top"><span class="sd-mark"></span><h3>${esc(g.name)}</h3></div>
+      <div class="faint">${g.episodes_n} ${plural(g.episodes_n, 'выпуск', 'выпуска', 'выпусков')}${g.last ? ' · последний ' + dt(g.last) : ''}</div>
+      <div class="stat-nums">${statNum(I.eye, g.has_counts ? g.views : null)}${statNum(I.heart, g.has_counts ? g.likes : null)}${statNum(I.chat, g.has_counts ? g.comments : null)}</div>
+      <span class="sd-go">Выпуски ${I.chevR || '→'}</span></a>`;
+  }
+
+  async function pageStats(view, params) {
+    const did = params.get('dir');
+    if (did) return statsDirection(view, did);
+    view.innerHTML = head('Статистика', 'Куда ушли выпуски и сколько набрали', refreshBtn) + loading();
+    let d;
+    try { d = await api('/api/stats'); } catch (e) { view.lastElementChild.outerHTML = failBox(e.message); return; }
+    const dirs = d.directions || [];
+    view.lastElementChild.outerHTML = (dirs.length
+      ? `<div class="grid stat-dirs">${dirs.map(statDirCard).join('')}</div>`
+      : emptyStats()) +
+      `<div class="note" style="margin-top:14px">Числа обновляются сами раз в несколько часов. YouTube приходит из n8n, Facebook и Threads Студия собирает сама.
+        У Telegram-канала просмотры поста бот не отдаёт — показываем, что опубликовано, и ссылку.</div>`;
+    bindRefresh(view);
+  }
+
+  async function statsDirection(view, did) {
+    view.innerHTML = head('Статистика', '', `<a class="btn" href="#/stats">${I.back || '←'} Все направления</a>`) + loading();
+    let d;
+    try { d = await api('/api/stats/' + encodeURIComponent(did)); } catch (e) { view.lastElementChild.outerHTML = failBox(e.message); return; }
+    const dir = d.direction || {}, eps = d.episodes || [];
+    const row = e => `<div class="card stat-ep">
+      <div class="se-h"><h3>${esc(e.title)}</h3><span class="faint">${dt(e.at)}</span></div>
+      <div class="se-plats">${(e.platforms || []).map(p => `<div class="se-plat">
+        <span class="se-pl"><span class="conn-ic ${p.platform}">${(PLAT_ICON[p.platform] || (() => ''))()}</span>${esc(p.label)}</span>
+        ${p.no_counts
+          ? `<span class="se-pub">опубликовано</span>`
+          : `<span class="se-nums">${statNum(I.eye, p.views)}${statNum(I.heart, p.likes)}${statNum(I.chat, p.comments)}</span>`}
+        ${p.url ? `<a class="btn small icon" href="${esc(p.url)}" target="_blank" rel="noopener" aria-label="Открыть" title="Открыть">${I.ext}</a>` : ''}
+      </div>`).join('')}</div></div>`;
+    view.lastElementChild.outerHTML = `<div class="stat-dir-head" style="--dc:${esc(dir.color || 'var(--faint)')}"><span class="sd-mark"></span><h2>${esc(dir.name || did)}</h2></div>` + (eps.length
+      ? `<div class="grid stat-eps">${eps.map(row).join('')}</div>`
+      : `<div class="card"><div class="empty"><b>У направления «${esc(dir.name || did)}» пока нет опубликованных выпусков</b>Как опубликуешь — появятся числа по площадкам</div></div>`);
+  }
+
   async function pageConnections(view, params) {
     view.innerHTML = head('Подключения', 'Каналы и аккаунты, куда конвейер публикует: всё видно и настраивается здесь') + loading();
     if (params && (params.get('ok') || params.get('err'))) {  // вернулись со входа Meta
@@ -3387,7 +3447,7 @@
   }
 
   // ---------- маршруты ----------
-  const PAGES = { '/': pageOverview, '/episodes': pageEpisodes, '/prompter': pagePrompter, '/prompter/view': pagePrompterView, '/prompter/edit': pagePrompterEdit, '/remote': pageRemote, '/logs': pageLogs, '/costs': pageCosts, '/sources': pageSources, '/directions': pageDirections, '/directions/edit': pageDirectionEdit, '/connections': pageConnections, '/settings': pageSettings };
+  const PAGES = { '/': pageOverview, '/episodes': pageEpisodes, '/prompter': pagePrompter, '/prompter/view': pagePrompterView, '/prompter/edit': pagePrompterEdit, '/remote': pageRemote, '/logs': pageLogs, '/costs': pageCosts, '/sources': pageSources, '/directions': pageDirections, '/directions/edit': pageDirectionEdit, '/connections': pageConnections, '/stats': pageStats, '/settings': pageSettings };
 
   function route() {
     if (!state.user) return;

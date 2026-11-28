@@ -1221,3 +1221,36 @@ details.srv > summary.card-h { flex-wrap: wrap; }
 :root[data-theme="dark"] { --wall-o: .06; }
 .grid.two > .grid { grid-template-columns: minmax(0, 1fr); }
 .card.todo .rows .title { white-space: normal; }
+
+/* ─── Статистика ─────────────────────────────────────────── */
+.grid.stat-dirs { grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); align-items: start; }
+.stat-dir { display: flex; flex-direction: column; gap: 8px; position: relative; overflow: hidden; text-decoration: none; color: inherit; transition: transform .12s ease, border-color .12s ease; }
+.stat-dir:hover { transform: translateY(-2px); border-color: var(--dc); }
+.stat-dir .sd-top { display: flex; align-items: center; gap: 9px; }
+.stat-dir h3 { margin: 0; font-size: 17px; }
+.sd-mark { width: 10px; height: 10px; border-radius: 3px; background: var(--dc, var(--faint)); flex: none; }
+.stat-nums { display: flex; gap: 14px; margin-top: 2px; flex-wrap: wrap; }
+.st-num { display: inline-flex; align-items: center; gap: 5px; font-weight: 600; font-size: 15px; color: var(--text); }
+.st-num svg { width: 15px; height: 15px; color: var(--faint); }
+.st-num.none { color: var(--faint); font-weight: 500; }
+.sd-go { margin-top: auto; font-size: 13px; color: var(--muted); display: inline-flex; align-items: center; gap: 5px; padding-top: 4px; }
+.stat-dir-head { display: flex; align-items: center; gap: 9px; margin: 2px 0 14px; }
+.stat-dir-head h2 { margin: 0; font-size: 20px; }
+.grid.stat-eps { grid-template-columns: minmax(0, 1fr); gap: 12px; }
+.stat-ep { padding: 14px 16px; }
+.se-h { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; margin-bottom: 10px; }
+.se-h h3 { margin: 0; font-size: 15px; font-weight: 600; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.se-plats { display: flex; flex-direction: column; gap: 7px; }
+.se-plat { display: flex; align-items: center; gap: 10px; padding: 6px 8px; border-radius: 9px; background: var(--hi); }
+.se-pl { display: inline-flex; align-items: center; gap: 8px; font-size: 13px; color: var(--muted); width: 130px; flex: none; }
+.se-pl .conn-ic { width: 22px; height: 22px; border-radius: 6px; }
+.se-pl .conn-ic svg { width: 13px; height: 13px; }
+.se-nums { display: flex; gap: 14px; flex-wrap: wrap; flex: 1; }
+.se-nums .st-num { font-size: 14px; }
+.se-pub { flex: 1; font-size: 13px; color: var(--faint); }
+.se-plat .btn.icon { margin-left: auto; flex: none; }
+@media (max-width: 560px) {
+  .se-plat { flex-wrap: wrap; }
+  .se-pl { width: auto; }
+  .se-nums { width: 100%; }
+}

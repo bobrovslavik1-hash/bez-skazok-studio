@@ -15,7 +15,7 @@ from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from starlette.concurrency import run_in_threadpool
 
-from . import apify, auth, catalog, config, connections, content, costs, db, directions, feeds, hostwatch, logs, look, meta, montage, n8n, prompter, pubtexts, remote, schedule, services, sources, telegram, vault
+from . import apify, auth, catalog, config, connections, content, costs, db, directions, feeds, hostwatch, logs, look, meta, montage, n8n, prompter, pubtexts, remote, schedule, services, sources, stats, telegram, vault
 from .mcp_server import mcp
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s %(name)s %(levelname)s %(message)s')
@@ -49,6 +49,7 @@ async def lifespan(app: FastAPI):
     threading.Thread(target=pubtexts.loop, name='pub-texts', daemon=True).start()
     threading.Thread(target=montage.loop, name='montage-table', daemon=True).start()
     threading.Thread(target=schedule.loop, name='publish-schedule', daemon=True).start()
+    threading.Thread(target=stats.loop, name='stats-collect', daemon=True).start()
     async with mcp.session_manager.run():
         yield
     db.close()
@@ -195,6 +196,44 @@ def appearance_photo(user=Depends(auth.current_user)):
         raise HTTPException(404, 'Своего фото нет')
     # адрес с ?v=<время загрузки> — новое фото получает новый адрес, старое можно держать в кэше браузера
     return Response(p[1], media_type=p[0], headers={'Cache-Control': 'private, max-age=31536000, immutable', 'X-Content-Type-Options': 'nosniff'})
+
+
+@app.get('/api/stats')
+def stats_overview(user=Depends(auth.current_user)):
+    """Статистика: направления с опубликованными выпусками и итогами по числам."""
+    return _src_errors(stats.directions, user['workspace_id'])
+
+
+@app.get('/api/stats/{did}')
+def stats_direction(did: str, user=Depends(auth.current_user)):
+    """Выпуски направления с числами по площадкам."""
+    return _src_errors(stats.by_direction, did, user['workspace_id'])
+
+
+@app.post('/api/stats/refresh')
+async def stats_refresh(request: Request, user=Depends(auth.current_user)):
+    """Собрать числа Facebook и Threads сейчас (YouTube досылает n8n)."""
+    auth.require_write(request)
+    _owner(user)
+    return await run_in_threadpool(_src_errors, stats.collect, user['workspace_id'])
+
+
+@app.post('/internal/stats')
+async def stats_ingest(request: Request):
+    """Приём чисел от n8n (YouTube). Ключ — тот же, что у сервера монтажа."""
+    key = request.headers.get('x-worker-key', '')
+    if not config.WORKER_KEY or not hmac.compare_digest(key, config.WORKER_KEY):
+        raise HTTPException(403, 'Нет доступа')
+    b = await _body(request)
+    items = b.get('items') if isinstance(b.get('items'), list) else [b]
+    ok = 0
+    for it in items:
+        try:
+            stats.ingest(str(it.get('episode_id') or ''), str(it.get('platform') or 'youtube'), it, config.WORKSPACE)
+            ok += 1
+        except (ValueError, LookupError):
+            pass
+    return {'ok': True, 'saved': ok}
 
 
 @app.get('/api/nav')
