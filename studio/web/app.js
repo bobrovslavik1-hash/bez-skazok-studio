@@ -657,6 +657,208 @@
     }));
   }
 
+  // ---------- монтажный стол: поправить вставки и пересобрать без пересъёмки ----------
+  const MT_KIND = { screenshot: 'Скриншот', source_media: 'Медиа из источника', card: 'Карточка', quote: 'Цитата', number: 'Цифра',
+    map: 'Карта', diagram: 'Схема', stock: 'Сток', wikimedia: 'Архивное фото', ai_image: 'Картинка ИИ' };
+  function bindMontage(box, id, vid) {
+    const det = box.querySelector('details.mt');
+    if (!det) return null;
+    const b = det.querySelector('.mt-b');
+    let ready = null, d = null;
+    const load = () => ready || (ready = api('/api/episodes/' + encodeURIComponent(id) + '/montage')
+      .then(x => { d = x; renderMontage(det, b, d, id, vid); return d; })
+      .catch(err => { ready = null; b.innerHTML = failBox(err.message); throw err; }));
+    det.addEventListener('toggle', () => { if (det.open) load().catch(() => {}); });
+    if (det.open) load().catch(() => {});
+    const onScreen = ms => (d.inserts || []).find(it => ms >= it.at_ms && ms < it.at_ms + it.dur_ms);
+    const show = async pick => {  // открыть стол и подсветить нужную строку
+      det.open = true;
+      try { await load(); } catch (x) { return; }
+      const it = pick();
+      const li = it && b.querySelector(`.mt-row[data-i="${it.i}"]`);
+      if (!li) { toast('Этой вставки в монтаже нет — возможно, она не встала', true); return; }
+      li.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      li.classList.remove('flash');
+      void li.offsetWidth;
+      li.classList.add('flash');
+    };
+    if (vid) {  // пауза на вставке — под плеером кнопка «Поправить»
+      const hint = document.createElement('div');
+      hint.className = 'mt-now';
+      hint.hidden = true;
+      vid.after(hint);
+      const onPause = async () => {
+        if (!vid.paused) return;
+        try { await load(); } catch (x) { return; }
+        const it = vid.paused && onScreen(vid.currentTime * 1000);
+        if (!it) { hint.hidden = true; return; }
+        hint.innerHTML = `<span>На экране вставка ${it.marker ? '№' + esc(it.marker) + ' · ' : ''}${esc(it.badge || MT_KIND[it.kind] || 'вставка')}</span>
+          <button class="btn small" data-mt-fix="${it.i}">Поправить</button>`;
+        hint.hidden = false;
+      };
+      vid.addEventListener('pause', onPause);
+      vid.addEventListener('seeked', onPause);
+      vid.addEventListener('play', () => { hint.hidden = true; });
+      hint.addEventListener('click', ev => {
+        const btn = ev.target.closest('[data-mt-fix]');
+        if (btn) show(() => d.inserts.find(it => it.i === Number(btn.dataset.mtFix)));
+      });
+    }
+    return { focus: (marker, ms) => show(() => d.inserts.find(it => String(it.marker) === String(marker)) || onScreen(ms)) };
+  }
+
+  function renderMontage(det, b, d, id, vid) {
+    const ed = {};  // правки: номер вставки → что поменяли
+    const byI = {};
+    (d.inserts || []).forEach(it => { byI[it.i] = it; });
+    const cur = it => Object.assign({}, it, ed[it.i] || {});
+    const maxAt = c => (d.total_ms ? Math.max(0, d.total_ms - c.dur_ms) : Infinity);
+    const host = u => { try { return new URL(u).hostname.replace(/^www\./, ''); } catch (x) { return u; } };
+    const sec = ms => (Math.round(ms / 100) / 10).toString().replace('.', ',') + ' с';
+    const job = d.job || {};
+    const running = d.status === 'rendering' && job.status === 'running';
+    const can = d.can_edit;
+    const row = it => {
+      const c = cur(it);
+      const thumb = it.asset ? (it.video ? `<video src="${esc(it.asset)}#t=0.5" muted preload="metadata" playsinline></video>`
+        : `<img src="${esc(it.asset)}" alt="" loading="lazy">`) : '<span class="mt-nofile">файла нет</span>';
+      const rep = c.replace ? (c.replace.url ? 'скрин ' + host(c.replace.url) : 'файл ' + c.replace.fname) : '';
+      const unsure = it.conf != null && it.conf < 0.8 && !ed[it.i];
+      return `<li class="mt-row${c.remove ? ' rm' : ''}${ed[it.i] ? ' chg' : ''}" data-i="${it.i}">
+        <button class="mt-thumb" data-mt-seek="${c.at_ms}" title="Перемотать к вставке">${thumb}</button>
+        <div class="mt-info">
+          <div class="title">${it.marker ? '№' + esc(it.marker) + ' · ' : ''}<button class="mt-tc" data-mt-seek="${c.at_ms}">${tc(c.at_ms)}</button> · ${sec(c.dur_ms)}${c.layout === 'full' ? ' · без ведущего' : ''}</div>
+          <div class="meta">${esc(it.badge || MT_KIND[it.kind] || it.kind || 'вставка')}${rep ? ' → <b>' + esc(rep) + '</b>' : it.replaced && !ed[it.i] ? ' · заменена' : it.edited && !ed[it.i] ? ' · правлена' : ''}${c.remove ? ' · <b>уберу</b>' : ''}${unsure ? ' · <span class="warntxt">проверь место</span>' : ''}</div>
+        </div>
+        ${can ? `<div class="mt-act">
+          <button class="btn small" data-mt="earlier" title="На секунду раньше">−1 с</button><button class="btn small" data-mt="later" title="На секунду позже">+1 с</button>
+          <button class="btn small" data-mt="shorter" title="На секунду короче">короче</button><button class="btn small" data-mt="longer" title="На секунду длиннее">длиннее</button>
+          <button class="btn small" data-mt="pip" title="Ведущий в углу поверх вставки">${c.layout === 'full' ? 'ведущий: нет' : 'ведущий: в углу'}</button>
+          <button class="btn small" data-mt="replace">Заменить</button>
+          <button class="btn small${c.remove ? '' : ' danger'}" data-mt="remove">${c.remove ? 'Вернуть' : 'Убрать'}</button></div>
+        <div class="mt-rep" hidden>
+          <input class="input" data-mt-url placeholder="Ссылка на страницу — сделаю её скрин" value="${esc(c.replace && c.replace.url || '')}">
+          <button class="btn small" data-mt="rep-url">Скрин страницы</button>
+          <label class="btn small">Свой файл<input type="file" data-mt-file hidden accept="image/png,image/jpeg,image/webp,video/mp4,video/quicktime,video/webm"></label>
+          ${c.replace ? '<button class="btn small" data-mt="rep-undo">Не заменять</button>' : ''}</div>` : ''}
+      </li>`;
+    };
+    const changes = () => Object.entries(ed).map(([i, x]) => (x.remove ? { i: Number(i), remove: true } : { i: Number(i), ...x }));
+    const head = running ? `<div class="note">Пересобираю${job.revert ? ' как было' : ` с правками (${job.changes || 0})`} — начато ${dt(job.at)}. Видео заменится само, итог придёт в Telegram.</div>`
+      : !can ? `<div class="note">${esc(d.reason)}</div>`
+      : job.status === 'error' ? `<div class="note warnnote">${job.partial ? 'Видео пересобрано, но шортсы или обложка могли остаться старыми' : 'Последняя пересборка не удалась'}: ${esc(job.error || '')}.${job.partial ? '' : ' Прежний вариант на месте.'}</div>`
+      : `<div class="faint mt-help">Нажми на картинку или время — видео перемотается к вставке. Поставь видео на паузу на неудачной вставке — под плеером появится «Поправить». Правки копятся, пересборка одна на все.${job.status === 'done' ? ` Последняя пересборка: ${dt(job.done_at)}.` : ''}</div>`;
+    b.innerHTML = `${head}
+      ${(d.inserts || []).length ? `<ul class="mt-list">${d.inserts.map(row).join('')}</ul>` : '<div class="faint">Вставок в этом монтаже нет.</div>'}
+      ${can ? `<div class="mt-foot"><span class="mt-count faint">Правок нет</span>
+        <button class="btn" data-mt-reset hidden>Сбросить</button>
+        ${d.edited ? '<button class="btn" data-mt-revert>Вернуть как было</button>' : ''}
+        <button class="btn primary" data-mt-go disabled>Пересобрать с правками</button></div>` : ''}`;
+    const list = b.querySelector('.mt-list');
+    const foot = () => {
+      const n = Object.keys(ed).length;
+      const cnt = b.querySelector('.mt-count');
+      if (!cnt) return;
+      cnt.textContent = n ? `Правок: ${n}` : 'Правок нет';
+      b.querySelector('[data-mt-go]').disabled = !n;
+      b.querySelector('[data-mt-reset]').hidden = !n;
+    };
+    const redraw = i => {
+      const li = list.querySelector(`.mt-row[data-i="${i}"]`);
+      const rep = li && li.querySelector('.mt-rep');
+      const open = !!rep && !rep.hidden;
+      li.outerHTML = row(byI[i]);
+      if (open) list.querySelector(`.mt-row[data-i="${i}"] .mt-rep`).hidden = false;
+      foot();
+    };
+    const setEd = (i, x) => {  // правка, совпадающая с исходным, — не правка
+      const it = byI[i];
+      if (x.at_ms === it.at_ms) delete x.at_ms;
+      if (x.dur_ms === it.dur_ms) delete x.dur_ms;
+      if (x.layout === it.layout) delete x.layout;
+      if (!x.remove) delete x.remove;
+      if (Object.keys(x).length) ed[i] = x; else delete ed[i];
+    };
+    const seek = ms => {
+      if (!vid) return;
+      vid.currentTime = Math.max(0, Number(ms) / 1000 - 1);
+      vid.play().catch(() => {});
+      vid.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    };
+    if (list) {
+      list.addEventListener('click', ev => {
+        const sk = ev.target.closest('[data-mt-seek]');
+        if (sk) { seek(sk.dataset.mtSeek); return; }
+        const btn = ev.target.closest('[data-mt]');
+        if (!btn) return;
+        const i = Number(btn.closest('.mt-row').dataset.i);
+        const it = byI[i], c = cur(it), x = Object.assign({}, ed[i] || {});
+        switch (btn.dataset.mt) {
+          case 'earlier': x.at_ms = Math.max(0, c.at_ms - 1000); break;
+          case 'later': x.at_ms = Math.min(maxAt(c), c.at_ms + 1000); break;
+          case 'shorter': x.dur_ms = Math.max(d.limits.dur_min, c.dur_ms - 1000); break;
+          case 'longer': x.dur_ms = Math.min(d.limits.dur_max, c.dur_ms + 1000); break;
+          case 'pip': x.layout = c.layout === 'full' ? 'full_pip' : 'full'; break;
+          case 'remove': x.remove = !c.remove; break;
+          case 'replace': { const r = btn.closest('.mt-row').querySelector('.mt-rep'); r.hidden = !r.hidden; if (!r.hidden) r.querySelector('input').focus(); return; }
+          case 'rep-url': {
+            const u = btn.closest('.mt-row').querySelector('[data-mt-url]').value.trim();
+            if (!/^https?:\/\//i.test(u)) { toast('Нужна ссылка на страницу — начинается с https://', true); return; }
+            x.replace = { url: u };
+            break;
+          }
+          case 'rep-undo': delete x.replace; break;
+          default: return;
+        }
+        setEd(i, x);
+        redraw(i);
+      });
+      list.addEventListener('change', ev => {
+        const inp = ev.target.closest('[data-mt-file]');
+        if (!inp || !inp.files || !inp.files[0]) return;
+        const f = inp.files[0], i = Number(inp.closest('.mt-row').dataset.i);
+        if (f.size > d.limits.upload_mb * 1048576) { toast(`Файл больше ${d.limits.upload_mb} МБ — возьми поменьше`, true); return; }
+        const ext = (f.name.split('.').pop() || '').toLowerCase();
+        const rd = new FileReader();
+        rd.onload = () => { const x = Object.assign({}, ed[i] || {}); x.replace = { b64: String(rd.result), ext, fname: f.name }; setEd(i, x); redraw(i); };
+        rd.onerror = () => toast('Файл не прочитался', true);
+        rd.readAsDataURL(f);
+      });
+    }
+    const go = b.querySelector('[data-mt-go]');
+    if (go) go.addEventListener('click', async () => {
+      const ch = changes();
+      if (!ch.length) return;
+      const shots = ch.filter(x => x.replace && x.replace.url).length;
+      if (!confirm(`Пересобрать выпуск с правками (${ch.length})?${shots ? `\nСначала сделаю скрины страниц (${shots}) — это до минуты.` : ''}\nВидео заменится, когда сервер закончит, — итог придёт в Telegram.`)) return;
+      go.disabled = true;
+      go.textContent = shots ? 'Делаю скрины…' : 'Отправляю…';
+      try {
+        await api('/api/episodes/' + encodeURIComponent(id) + '/montage', { body: { changes: ch.map(x => (x.replace ? { ...x, replace: { url: x.replace.url, b64: x.replace.b64, ext: x.replace.ext } } : x)) } });
+        toast('Пересобираю — итог придёт в Telegram');
+        openEpisode(id);
+      } catch (err) { toast(err.message, true); go.disabled = false; go.textContent = 'Пересобрать с правками'; }
+    });
+    const reset = b.querySelector('[data-mt-reset]');
+    if (reset) reset.addEventListener('click', () => { Object.keys(ed).forEach(k => delete ed[k]); list.innerHTML = d.inserts.map(row).join(''); foot(); });
+    const back = b.querySelector('[data-mt-revert]');
+    if (back) back.addEventListener('click', async () => {
+      if (!confirm('Вернуть выпуск как был собран автоматически? Все правки монтажного стола пропадут, выпуск пересоберётся.')) return;
+      back.disabled = true;
+      try { await api('/api/episodes/' + encodeURIComponent(id) + '/montage/revert', { body: {} }); toast('Возвращаю как было — итог придёт в Telegram'); openEpisode(id); }
+      catch (err) { toast(err.message, true); back.disabled = false; }
+    });
+    if (running) {  // пока сервер собирает — раз в 15 секунд проверяем, не готово ли
+      const t = setInterval(async () => {
+        if (!document.body.contains(det)) { clearInterval(t); return; }
+        try {
+          const n = await api('/api/episodes/' + encodeURIComponent(id) + '/montage');
+          if (!(n.status === 'rendering' && n.job && n.job.status === 'running')) { clearInterval(t); openEpisode(id); }
+        } catch (x) { /* сеть моргнула — спросим ещё раз */ }
+      }, 15000);
+    }
+  }
+
   async function openEpisode(id) {
     const d0 = drawer('Выпуск', esc(id), loading());
     let e;
@@ -669,14 +871,17 @@
     const socErr = [['facebook', 'Facebook'], ['threads', 'Threads']].filter(([k]) => soc[k] && !soc[k].ok).map(([k, t]) => `${t}: ${esc(soc[k].error)}`);
     const newPub = !!(e.pub && e.pub.texts);  // есть тексты публикации — публикуем кнопками у площадок
     const acts = (e.actions || []).filter(a => EP_ACT[a] && !(newPub && a === 'publish'));
+    const rev = v && v.rev ? '?v=' + v.rev : '';  // метка пересборки с монтажного стола
+    const mj = (e.meta && e.meta.montage_job) || {};
     const review = v ? [
       ...(v.review || []).map(x => `<li><button class="btn small" data-seek="${x.at_ms || 0}">${tc(x.at_ms)}</button><div class="grow">
-        <div class="title">Вставка ${esc(x.marker)} — проверь место</div><div class="meta">уверенность ${Math.round((x.conf || 0) * 100)}%</div></div></li>`),
+        <div class="title">Вставка ${esc(x.marker)} — проверь место</div><div class="meta">уверенность ${Math.round((x.conf || 0) * 100)}%</div></div>
+        <button class="btn small" data-mt-fixm="${esc(x.marker)}" data-ms="${x.at_ms || 0}">Поправить</button></li>`),
       ...(v.missed || []).map(x => `<li><span class="dot err"></span><div class="grow"><div class="title">Вставка ${esc(x.marker)} не встала</div>
         <div class="meta">${esc(x.why)}</div></div></li>`)] : [];
     const body = `
       <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:14px">${epTags(e)}</div>
-      ${v ? `<video class="ep-video" controls preload="metadata" playsinline poster="${esc(v.thumb_url)}" src="${esc(v.final_url)}"></video>` : ''}
+      ${v ? `<video class="ep-video" controls preload="metadata" playsinline poster="${esc(v.thumb_url + rev)}" src="${esc(v.final_url + rev)}"></video>` : ''}
       <div class="actions" style="margin:12px 0 6px">
         ${acts.map(a => `<button class="btn ${EP_ACT[a].tone}" data-act="${a}">${EP_ACT[a].label}</button>`).join('')}
         ${v ? `<a class="btn" href="${esc(v.final_url)}" target="_blank" rel="noopener">Открыть видео</a>`
@@ -695,7 +900,12 @@
       ${v ? `
         ${review.length ? `<div class="section-t">Проверь перед публикацией</div><div class="card"><ul class="rows">${review.join('')}</ul></div>` : ''}
         ${(v.shorts || []).length ? `<div class="section-t">Шортсы · ${v.shorts.length}</div><div class="ep-shorts">${v.shorts.map(s => `<figure>
-          <video controls preload="none" playsinline src="${esc(s.url)}"></video><figcaption>${esc(s.title)}</figcaption></figure>`).join('')}</div>` : ''}
+          <video controls preload="none" playsinline src="${esc(s.url + rev)}"></video><figcaption>${esc(s.title)}</figcaption></figure>`).join('')}</div>` : ''}
+        <details class="mt"${mj.status === 'running' && e.status === 'rendering' ? ' open' : ''}><summary class="section-t">Монтажный стол
+          ${mj.status === 'running' && e.status === 'rendering' ? '<span class="mt-sum">пересобираю…</span>'
+            : mj.status === 'error' ? `<span class="mt-sum warntxt">${mj.partial ? 'пересобрано не до конца' : 'последняя пересборка не удалась'}</span>`
+            : '<span class="mt-sum">поправить вставки без пересъёмки</span>'}</summary>
+          <div class="mt-b"><div class="faint">Загружаю вставки…</div></div></details>
         ${pubSection(e)}
         <div class="section-t">Монтаж</div><dl class="kv">
           <dt>Вставки</dt><dd>${v.inserts_placed ?? '—'}${(v.missed || []).length ? ` · не встали: ${v.missed.length}` : ''}</dd>
@@ -729,6 +939,8 @@
       vid.scrollIntoView({ behavior: 'smooth', block: 'center' });
     }));
     bindPub(box, e, id);
+    const mt = bindMontage(box, id, vid);
+    box.querySelectorAll('[data-mt-fixm]').forEach(b => b.addEventListener('click', () => mt && mt.focus(b.dataset.mtFixm, Number(b.dataset.ms))));
     const socBtn = box.querySelector('[data-social]');
     if (socBtn) socBtn.addEventListener('click', async () => {
       socBtn.disabled = true;

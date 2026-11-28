@@ -231,6 +231,7 @@ def _video(meta: dict, preview_url: str | None) -> dict | None:
         'missed': [{'marker': str(x.get('marker')), 'why': x.get('why') or ''} for x in (st.get('inserts_missed') or []) if isinstance(x, dict)],
         'credits': meta.get('credits') or [],
         'social': _social(meta),
+        'rev': meta.get('montage_rev'),
     }
 
 

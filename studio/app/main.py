@@ -15,7 +15,7 @@ from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from starlette.concurrency import run_in_threadpool
 
-from . import apify, auth, catalog, config, connections, content, costs, db, directions, feeds, hostwatch, logs, meta, n8n, prompter, pubtexts, services, sources, vault
+from . import apify, auth, catalog, config, connections, content, costs, db, directions, feeds, hostwatch, logs, meta, montage, n8n, prompter, pubtexts, services, sources, vault
 from .mcp_server import mcp
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s %(name)s %(levelname)s %(message)s')
@@ -47,6 +47,7 @@ async def lifespan(app: FastAPI):
     threading.Thread(target=meta.loop, name='meta-refresh', daemon=True).start()
     threading.Thread(target=meta.queue_loop, name='meta-queue', daemon=True).start()
     threading.Thread(target=pubtexts.loop, name='pub-texts', daemon=True).start()
+    threading.Thread(target=montage.loop, name='montage-table', daemon=True).start()
     async with mcp.session_manager.run():
         yield
     db.close()
@@ -91,7 +92,9 @@ async def security_headers(request: Request, call_next):
     resp.headers.setdefault('Referrer-Policy', 'same-origin')
     if not request.url.path.startswith('/mcp'):
         resp.headers.setdefault('X-Frame-Options', 'DENY')
-        resp.headers.setdefault('Content-Security-Policy', "default-src 'self'; img-src 'self' data: https:; style-src 'self' 'unsafe-inline'; "
+        # media-src: видео выпуска и шортсы лежат на адресе сервера монтажа, а Студия — на своём поддомене
+        resp.headers.setdefault('Content-Security-Policy', "default-src 'self'; img-src 'self' data: https:; media-src 'self' https:; "
+                                                          "style-src 'self' 'unsafe-inline'; "
                                                           "script-src 'self'; connect-src 'self'; frame-ancestors 'none'; base-uri 'self'")
     if request.url.path.startswith('/api/'):
         resp.headers.setdefault('Cache-Control', 'no-store')
@@ -221,6 +224,54 @@ async def episode_publish_to(eid: str, platform: str, request: Request, user=Dep
         raise HTTPException(404, 'Неизвестная площадка')
     db.audit(user['login'], 'episode_publish_to', {'id': eid, 'platform': platform}, user['workspace_id'])
     return r
+
+
+def _montage_errors(fn, *a, **kw):
+    try:
+        return fn(*a, **kw)
+    except montage.MontageError as e:
+        raise HTTPException(400, str(e))
+    except LookupError as e:
+        raise HTTPException(404, str(e))
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+
+
+def _montage_owner(user: dict) -> None:
+    if user.get('role') != 'owner':
+        raise HTTPException(403, 'Править монтаж может только владелец кабинета')
+
+
+@app.get('/api/episodes/{eid}/montage')
+def episode_montage(eid: str, user=Depends(auth.current_user)):
+    """Монтажный стол: вставки выпуска со временем и превью, можно ли сейчас править, идёт ли пересборка."""
+    return _montage_errors(montage.view, eid)
+
+
+@app.post('/api/episodes/{eid}/montage')
+async def episode_montage_apply(eid: str, request: Request, user=Depends(auth.current_user)):
+    """Применить правки (убрать, сдвинуть, длина, ведущий в углу, замена) и пересобрать выпуск."""
+    auth.require_write(request)
+    _montage_owner(user)
+    b = await _body(request)
+    return await run_in_threadpool(_montage_errors, montage.apply, eid, b, user['login'])
+
+
+@app.post('/api/episodes/{eid}/montage/revert')
+async def episode_montage_revert(eid: str, request: Request, user=Depends(auth.current_user)):
+    """«Вернуть как было»: пересобрать по самому первому плану монтажа."""
+    auth.require_write(request)
+    _montage_owner(user)
+    return await run_in_threadpool(_montage_errors, montage.revert, eid, user['login'])
+
+
+@app.get('/api/montage/asset')
+def montage_asset(p: str = '', user=Depends(auth.current_user)):
+    """Картинка или видео вставки для монтажного стола — с сервера монтажа, только чтение."""
+    try:
+        return FileResponse(montage.asset_path(p))
+    except LookupError:
+        raise HTTPException(404, 'Нет такого файла')
 
 
 @app.get('/api/episodes/{eid}/file/{name}')

@@ -87,6 +87,16 @@ BEGIN
 EXCEPTION WHEN OTHERS THEN
   RAISE NOTICE 'учёт этапов выпуска не включён: %', SQLERRM;
 END $$;
+-- монтажный стол: самый первый план монтажа (edl_auto — «Вернуть как было») и план, который сейчас пересобирается (edl_next)
+DO $$
+BEGIN
+  IF to_regclass('public.k_episodes') IS NOT NULL THEN
+    ALTER TABLE k_episodes ADD COLUMN IF NOT EXISTS edl_auto JSONB;
+    ALTER TABLE k_episodes ADD COLUMN IF NOT EXISTS edl_next JSONB;
+  END IF;
+EXCEPTION WHEN OTHERS THEN
+  RAISE NOTICE 'монтажный стол: колонки плана не добавлены: %', SQLERRM;
+END $$;
 -- хэштеги канала новостей выбрал владелец 27.11 (меняются в «Направлениях»; NULL — значит ещё не ставили)
 UPDATE studio_directions SET hashtags = '#БезСказок #новости #война #политика' WHERE id = 'news' AND hashtags IS NULL;
 CREATE TABLE IF NOT EXISTS studio_accounts (
