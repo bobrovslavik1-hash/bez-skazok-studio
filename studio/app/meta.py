@@ -10,6 +10,7 @@
 - Facebook — длинное видео на страницу: файл грузится с диска частями (upload_phase start → transfer → finish) по ключу
   страницы — так можно видео до ~45 минут; если Meta этот способ не примет, второй способ — Resumable Upload API.
 - Threads — короткий текст (до 500 знаков) со ссылкой на выпуск.
+- Telegram — пост в канал (обложка, текст, ссылка), см. telegram.py; в очереди — после Facebook, чтобы была ссылка на видео.
 Повторный вызов безопасен: опубликованное отмечается в k_episodes.meta (fb_video_id, threads_post_id) и второй раз не идёт.
 """
 import base64
@@ -38,6 +39,7 @@ TH_DIALOG = 'https://threads.net/oauth/authorize'
 FB_SCOPES = 'pages_show_list,pages_read_engagement,pages_manage_posts,business_management'  # без business_management Facebook прячет страницы бизнес-портфолио
 TH_SCOPES = 'threads_basic,threads_content_publish,threads_manage_replies'  # ответы — для цепочки постов
 KINDS = ('facebook', 'threads')
+SOCIAL = KINDS + ('telegram',)   # очередь публикаций: Meta и Telegram-канал (telegram.py)
 APP_KEY = {'facebook': 'meta_app', 'threads': 'threads_app'}
 SECRET_KEY = {'facebook': 'meta_app_secret', 'threads': 'threads_app_secret'}
 CONN_KEY = {'facebook': 'key:meta_fb', 'threads': 'key:meta_threads'}  # key: — не уходит в копию базы
@@ -575,11 +577,18 @@ def publish(eid: str, ws: str = config.WORKSPACE) -> dict:
                 patch.update(threads_post_id=r['chain'][0], threads_chain=r['chain'], threads_total=max(len(posts), len(r['chain'])),
                              threads_url=r.get('url') or meta.get('threads_url') or '')
     if out:
-        patch['social'] = {k: {'ok': v['ok'], 'url': v.get('url') or '', 'error': v.get('error') or '', 'at': _now().isoformat()}
-                           for k, v in out.items()}
-        db.x("UPDATE k_episodes SET meta = COALESCE(meta, '{}'::jsonb) || %s::jsonb, updated_at = now() WHERE id = %s", (json.dumps(patch), eid))
+        soc = {k: {'ok': v['ok'], 'url': v.get('url') or '', 'error': v.get('error') or '', 'at': _now().isoformat()} for k, v in out.items()}
+        # social сливаем с тем, что уже записано (другие площадки и Telegram пишут туда сами), а не затираем
+        db.x("UPDATE k_episodes SET meta = jsonb_set(COALESCE(meta, '{}'::jsonb) || %s::jsonb, '{social}', COALESCE(meta->'social', '{}'::jsonb) || %s::jsonb), "
+             "updated_at = now() WHERE id = %s", (json.dumps(patch), json.dumps(soc), eid))
+    if 'telegram' in tg:  # после Facebook: в посте может понадобиться ссылка на видео там
+        from . import telegram
+        try:
+            out['telegram'] = telegram.publish_post(eid, ws, 'auto', quiet=True)
+        except (telegram.TgError, LookupError) as e:
+            out['telegram'] = {'ok': False, 'error': str(e)}
     lines = []
-    for k, label in (('facebook', '📘 Facebook'), ('threads', '🧵 Threads')):
+    for k, label in (('facebook', '📘 Facebook'), ('threads', '🧵 Threads'), ('telegram', '✈️ Telegram')):
         r = out.get(k)
         if not r or r.get('again'):
             continue
@@ -604,8 +613,9 @@ def flag_targets(eid: str, ws: str = config.WORKSPACE) -> list:
     ep = db.q1('SELECT direction_id FROM k_episodes WHERE id = %s', (eid,))
     if not ep:
         raise LookupError('Нет такого выпуска')
-    d = db.q1('SELECT publish_facebook, publish_threads FROM studio_directions WHERE workspace_id = %s AND id = %s', (ws, ep['direction_id'])) or {}
-    return [k for k in KINDS if d.get('publish_' + k) == 'TRUE']
+    d = db.q1('SELECT publish_facebook, publish_threads, publish_telegram FROM studio_directions WHERE workspace_id = %s AND id = %s',
+              (ws, ep['direction_id'])) or {}
+    return [k for k in SOCIAL if d.get('publish_' + k) == 'TRUE']
 
 
 def targets(eid: str, ws: str = config.WORKSPACE) -> list:
@@ -615,7 +625,7 @@ def targets(eid: str, ws: str = config.WORKSPACE) -> list:
         raise LookupError('Нет такого выпуска')
     only = ep.get('only')
     if isinstance(only, list) and only:
-        return [k for k in KINDS if k in only]
+        return [k for k in SOCIAL if k in only]
     return flag_targets(eid, ws)
 
 
@@ -626,14 +636,14 @@ def request_publish(eid: str, ws: str = config.WORKSPACE, only: list | None = No
     if not ep:
         raise LookupError('Нет такого выпуска')
     if only is not None:
-        bad = [k for k in only if k not in KINDS]
+        bad = [k for k in only if k not in SOCIAL]
         if bad or not only:
             raise ValueError('Неизвестная площадка')
     want = set(only) if only else set(flag_targets(eid, ws))
     m = ep.get('meta') or {}
     if m.get('social_pending') and isinstance(m.get('social_targets'), list):
         want |= set(m['social_targets'])
-    t = [k for k in KINDS if k in want]
+    t = [k for k in SOCIAL if k in want]
     if t:
         db.x("UPDATE k_episodes SET meta = COALESCE(meta, '{}'::jsonb) || jsonb_build_object('social_pending', true, 'social_tries', 0, "
              "'social_requested_at', now()::text, 'social_targets', %s::jsonb) WHERE id = %s", (json.dumps(t), eid))
@@ -648,14 +658,14 @@ def _run(eid: str) -> None:
     if r['n'] >= MAX_TRIES:  # три раза начинали и не закончили (Студию перезапускали посреди загрузки) — больше не пробуем
         ep = db.q1('SELECT meta FROM k_episodes WHERE id = %s', (eid,)) or {}
         m = ep.get('meta') or {}
-        done = {'facebook': m.get('fb_video_id'), 'threads': m.get('threads_post_id')}
+        done = {'facebook': m.get('fb_video_id'), 'threads': m.get('threads_post_id'), 'telegram': (m.get('tg_post') or {}).get('message_id')}
         soc = dict(m.get('social') or {})
         for k in targets(eid):
             if not done[k]:
                 soc[k] = {'ok': False, 'url': '', 'error': f'загрузка прерывалась {MAX_TRIES} раза', 'at': _now().isoformat()}
         db.x("UPDATE k_episodes SET meta = meta || jsonb_build_object('social_pending', false, 'social', %s::jsonb) WHERE id = %s", (json.dumps(soc), eid))
-        db.notify(f'⚠️ Facebook/Threads: выпуск {eid} не получилось опубликовать за {MAX_TRIES} попытки. '
-                  'Открой его в Студии → «Выпуски» → «Повторить Facebook и Threads».', 'meta')
+        db.notify(f'⚠️ Соцсети: выпуск {eid} не получилось опубликовать за {MAX_TRIES} попытки. '
+                  'Открой его в Студии → «Выпуски» → «Публикация» и нажми кнопку у площадки.', 'meta')
         return
     db.x("UPDATE k_episodes SET meta = meta || jsonb_build_object('social_tries', %s::int) WHERE id = %s", (r['n'] + 1, eid))
     try:

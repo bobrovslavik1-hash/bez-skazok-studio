@@ -15,7 +15,7 @@ from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from starlette.concurrency import run_in_threadpool
 
-from . import apify, auth, catalog, config, connections, content, costs, db, directions, feeds, hostwatch, logs, meta, montage, n8n, prompter, pubtexts, services, sources, vault
+from . import apify, auth, catalog, config, connections, content, costs, db, directions, feeds, hostwatch, logs, meta, montage, n8n, prompter, pubtexts, remote, services, sources, telegram, vault
 from .mcp_server import mcp
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s %(name)s %(levelname)s %(message)s')
@@ -161,8 +161,8 @@ def overview(user=Depends(auth.current_user)):
 
 
 @app.get('/api/episodes')
-def episodes(kind: str | None = None, limit: int = 50, user=Depends(auth.current_user)):
-    return {'episodes': services.episodes(limit=limit, kind=kind)}
+def episodes(kind: str | None = None, limit: int = 50, direction: str | None = None, user=Depends(auth.current_user)):
+    return {'episodes': services.episodes(limit=limit, kind=kind, direction=direction or None), 'directions': services.episode_directions()}
 
 
 @app.get('/api/episodes/{eid}')
@@ -220,6 +220,15 @@ async def episode_publish_to(eid: str, platform: str, request: Request, user=Dep
         if not v['video_ready']:
             raise HTTPException(400, 'Сначала нужен готовый выпуск — кнопка заработает после монтажа')
         r = await run_in_threadpool(_meta_errors, meta.request_publish, eid, user['workspace_id'], [platform])
+    elif platform == 'telegram':  # Telegram — сразу, ответ с ссылкой на пост: пост о выпуске или шортс ({"short": "short_1"})
+        b = await _body(request)
+        v = await run_in_threadpool(_pub_errors, pubtexts.view, eid, user['workspace_id'])
+        if not v['video_ready']:
+            raise HTTPException(400, 'Сначала нужен готовый выпуск — кнопка заработает после монтажа')
+        if b.get('short'):
+            r = await run_in_threadpool(_tg_errors, telegram.publish_short, eid, str(b['short']), user['workspace_id'], user['login'])
+        else:
+            r = await run_in_threadpool(_tg_errors, telegram.publish_post, eid, user['workspace_id'], user['login'])
     else:
         raise HTTPException(404, 'Неизвестная площадка')
     db.audit(user['login'], 'episode_publish_to', {'id': eid, 'platform': platform}, user['workspace_id'])
@@ -300,6 +309,28 @@ async def episode_delete(eid: str, request: Request, user=Depends(auth.current_u
 
 
 # ---------- суфлёр ----------
+# пульт: суфлёр у камеры сообщает состояние и забирает команды, телефон шлёт команды и смотрит состояние (remote.py)
+@app.post('/api/prompter/remote/state')
+async def prompter_remote_state(request: Request, user=Depends(auth.current_user)):
+    auth.require_write(request)
+    return remote.push(user['workspace_id'], await _body(request))
+
+
+@app.post('/api/prompter/remote/cmd')
+async def prompter_remote_cmd(request: Request, user=Depends(auth.current_user)):
+    auth.require_write(request)
+    b = await _body(request)
+    try:
+        return remote.command(user['workspace_id'], str(b.get('cmd') or ''))
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+
+
+@app.get('/api/prompter/remote')
+def prompter_remote_view(user=Depends(auth.current_user)):
+    return remote.view(user['workspace_id'])
+
+
 @app.get('/api/prompter')
 def prompter_list(user=Depends(auth.current_user)):
     return prompter.listing(user['workspace_id'])
@@ -346,7 +377,22 @@ async def prompter_text_delete(tid: int, request: Request, user=Depends(auth.cur
 def runs(view: str = 'important', limit: int = 50, workflow_id: str | None = None, cursor: str | None = None, user=Depends(auth.current_user)):
     if view not in ('important', 'all', 'errors'):
         view = 'important'
-    return logs.list_runs(limit=limit, view=view, workflow_id=workflow_id, cursor=cursor)
+    out = logs.list_runs(limit=limit, view=view, workflow_id=workflow_id, cursor=cursor)
+    ack = services.acked()
+    for r in out.get('runs') or []:
+        r['ack'] = str(r.get('id')) in ack
+    return out
+
+
+@app.post('/api/runs/ack')
+async def runs_ack(request: Request, user=Depends(auth.current_user)):
+    """«Разобрано»: ошибка больше не горит красным в меню и на «Обзоре». {ids: [...]} или {all: true} — все за неделю."""
+    auth.require_write(request)
+    b = await _body(request)
+    ids = None if b.get('all') else [str(x) for x in (b.get('ids') or []) if x]
+    if ids is not None and not ids:
+        raise HTTPException(400, 'Какие ошибки отметить?')
+    return await run_in_threadpool(_src_errors, services.ack_errors, ids, user['login'])
 
 
 @app.get('/api/runs/{eid}')
@@ -436,8 +482,43 @@ def _src_errors(fn, *a, **kw):
 def connections_list(recheck: bool = False, user=Depends(auth.current_user)):
     if recheck:  # «Проверить вход» — спросить YouTube сейчас, не дожидаясь 10 минут
         connections.youtube_check(force=True)
-    return {**connections.overview(user['workspace_id']), 'meta': meta.status(user['workspace_id']),
+    return {**connections.overview(user['workspace_id']), 'meta': meta.status(user['workspace_id']), 'telegram': telegram.status(user['workspace_id']),
             'n8n_credentials_url': (config.N8N_PUBLIC_URL + '/home/credentials') if config.N8N_PUBLIC_URL else ''}
+
+
+# ---------- Telegram-канал: бот-админ канала; токен вписывает человек, Студия хранит его зашифрованным ----------
+def _tg_errors(fn, *a, **kw):
+    try:
+        return fn(*a, **kw)
+    except telegram.TgError as e:
+        raise HTTPException(400, str(e))
+    except LookupError as e:
+        raise HTTPException(404, str(e))
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+
+
+@app.put('/api/telegram')
+async def telegram_connect(request: Request, user=Depends(auth.current_user)):
+    """Подключить канал: токен бота (пустой — оставить прежний) и адрес канала. Студия проверит, что бот может публиковать."""
+    auth.require_write(request)
+    _owner(user)
+    b = await _body(request)
+    return await run_in_threadpool(_tg_errors, telegram.connect, str(b.get('token') or ''), str(b.get('channel') or ''), user['login'], user['workspace_id'])
+
+
+@app.post('/api/telegram/check')
+async def telegram_check(request: Request, user=Depends(auth.current_user)):
+    auth.require_write(request)
+    _owner(user)
+    return await run_in_threadpool(_tg_errors, telegram.recheck, user['login'], user['workspace_id'])
+
+
+@app.delete('/api/telegram')
+def telegram_disconnect(request: Request, user=Depends(auth.current_user)):
+    auth.require_write(request)
+    _owner(user)
+    return _tg_errors(telegram.disconnect, user['login'], user['workspace_id'])
 
 
 # ---------- Facebook и Threads: вход через Meta прямо из Студии ----------

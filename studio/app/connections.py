@@ -1,9 +1,10 @@
-"""Подключения: каналы и аккаунты, куда конвейер публикует (YouTube, Facebook, Threads).
+"""Подключения: каналы и аккаунты, куда конвейер публикует (YouTube, Facebook, Threads, Telegram).
 
 YouTube входит через n8n — Credentials: Студия секретов не видит, берёт из n8n список входов (имя и тип), находит, какие
 процессы ими пользуются, и показывает всё в одном окне вместе с тем, что знает сама: ссылка на канал, какие направления
 туда публикуют, последние публикации. Подпись и ссылку на канал можно поправить в Студии — они хранятся в studio_accounts.
 Facebook и Threads подключаются кнопкой прямо в Студии (вход Meta) и публикует их сама Студия — см. meta.py.
+Telegram-канал — бот-админ канала, токен вписывают в Студии; публикует Студия — см. telegram.py.
 """
 import logging
 import re
@@ -19,6 +20,7 @@ PLATFORMS = {
     'youtube': {'title': 'YouTube', 'what': 'длинные видео и шортсы', 'types': ('youTubeOAuth2Api',)},
     'facebook': {'title': 'Facebook', 'what': 'длинные видео на страницу', 'types': ('facebookGraphApi', 'facebookGraphAppApi')},
     'threads': {'title': 'Threads', 'what': 'новости текстом', 'types': ()},
+    'telegram': {'title': 'Telegram', 'what': 'канал: пост с обложкой и ссылкой, шортсы видео', 'types': ()},  # входа в n8n нет: бот канала — в Студии
 }
 
 
@@ -84,7 +86,7 @@ def overview(ws: str = config.WORKSPACE) -> dict:
     except n8n.N8nError as e:
         creds, usage, err = [], {}, str(e)
     saved = {r['credential_id']: r for r in db.q('SELECT * FROM studio_accounts WHERE workspace_id = %s', (ws,))}
-    dirs = db.q("SELECT id, name, enabled, publish_youtube, youtube_privacy, publish_facebook, publish_threads FROM studio_directions "
+    dirs = db.q("SELECT id, name, enabled, publish_youtube, youtube_privacy, publish_facebook, publish_threads, publish_telegram FROM studio_directions "
                 "WHERE workspace_id = %s ORDER BY sort, id", (ws,)) if db.table_exists('studio_directions') else []
     has_eps = db.table_exists('k_episodes')
     title = "coalesce(script->>'yt_title', script->>'title', id) AS title"
@@ -93,6 +95,8 @@ def overview(ws: str = config.WORKSPACE) -> dict:
     social = {k: db.q(f"SELECT id, {title}, meta->>'{u}' AS url, updated_at FROM k_episodes WHERE meta->>'{i}' IS NOT NULL "
                       "ORDER BY updated_at DESC LIMIT 5") if has_eps else []
               for k, i, u in (('facebook', 'fb_video_id', 'fb_url'), ('threads', 'threads_post_id', 'threads_url'))}
+    social['telegram'] = db.q(f"SELECT id, {title}, meta->'tg_post'->>'url' AS url, updated_at FROM k_episodes WHERE meta ? 'tg_post' "
+                              "ORDER BY updated_at DESC LIMIT 5") if has_eps else []
     out = {}
     yt = youtube_check() if any(_platform(c) == 'youtube' for c in creds) else None
     for pid, p in PLATFORMS.items():

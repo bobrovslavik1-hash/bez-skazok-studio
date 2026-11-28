@@ -1,11 +1,12 @@
-"""Тексты публикации выпуска: YouTube (выпуск и каждый шортс), Facebook, Threads (цепочка постов), подписи для TikTok.
+"""Тексты публикации выпуска: YouTube (выпуск и каждый шортс), Facebook, Threads (цепочка постов), пост для Telegram,
+подписи для TikTok.
 
 Пишет их Claude — сам, как только готов монтаж, или по кнопке на странице выпуска. Запрос идёт через процесс n8n
 «Студия · ✍️ Claude для Студии» (POST /webhook/studio-claude, ключ сервера монтажа): ключ Anthropic остаётся в n8n,
 а расход Студия считает по запускам n8n, как у остальных шагов (costs.py).
 
 Тексты лежат в k_episodes.meta.pub и правятся на странице выпуска. Публикуется ровно сохранённое:
-YouTube — К6 (n8n), Facebook и Threads — Студия (meta.py). Хэштеги канала — из «Направлений», плюс 2–3 по темам выпуска.
+YouTube — К6 (n8n), Facebook и Threads — Студия (meta.py), Telegram — Студия (telegram.py). Хэштеги канала — из «Направлений», плюс 2–3 по темам выпуска.
 """
 import datetime as dt
 import json
@@ -23,9 +24,10 @@ log = logging.getLogger('studio.pubtexts')
 
 MODEL = 'claude-sonnet-5-5'      # n8n всё равно ставит свою модель и потолок токенов — это лишь пожелание
 WEBHOOK = '/webhook/studio-claude'
-PARTS = ('youtube', 'shorts', 'facebook', 'threads')
+PARTS = ('youtube', 'shorts', 'facebook', 'threads', 'telegram')
 LIM = {'yt_title': 100, 'yt_desc': 3000, 'short_title': 90, 'short_desc': 600, 'tiktok': 1500, 'fb': 3000,
-       'th_post': 500, 'th_posts': 8, 'tags': 5}
+       'th_post': 500, 'th_posts': 8, 'tags': 5, 'tg': 800}   # tg — чтобы к подписи (до 1024) влезли заголовок, ссылка и хэштеги
+TG_LINKS = ('auto', 'youtube', 'facebook', 'none')
 SKIP_HEADS = ('заход', 'вступление', 'итог', 'итоги')
 _locks: dict = {}
 _locks_guard = threading.Lock()
@@ -164,13 +166,15 @@ def _prompt(r: dict, meta: dict, script: dict, d: dict, sh: list) -> tuple:
         '- shorts — для КАЖДОГО шортса из списка, с тем же name: title — до 80 знаков, цепляет с первых слов; '
         'description — 1–2 строки; tiktok — подпись для TikTok: 1–2 живых предложения, можно вопрос к зрителю; hashtags — 2–3.\n'
         '- facebook.text — 2–4 строки над видео на странице.\n'
+        '- telegram.text — пост в Telegram-канал под обложкой выпуска: 2–5 коротких строк — главное в выпуске и почему его стоит '
+        'посмотреть; можно перечислить 2–3 сюжета, каждый с новой строки через тире. Заголовок, ссылку и хэштеги Студия добавит сама.\n'
         f'- threads — цепочка из {n} постов, каждый до 450 знаков. 1-й — заход: главное за день и зачем читать дальше '
         '(к нему прикрепится ссылка на видео). Дальше — по посту на сюжет: факт из выпуска и короткий вывод ведущего '
         '(«на мой взгляд…»). Последний — короткий итог и приглашение посмотреть выпуск.\n'
         'Ответь ТОЛЬКО JSON без markdown:\n'
         '{"youtube":{"title":"","description":"","hashtags":["#…"]},'
         '"shorts":[{"name":"short_1","title":"","description":"","tiktok":"","hashtags":["#…"]}],'
-        '"facebook":{"text":""},"threads":["…"]}')
+        '"facebook":{"text":""},"telegram":{"text":""},"threads":["…"]}')
     parts = ['НАЗВАНИЕ ВЫПУСКА: ' + str(script.get('yt_title') or script.get('title') or r['id'])]
     if script.get('yt_description'):
         parts.append('ЧЕРНОВИК ОПИСАНИЯ ОТ СЦЕНАРИСТА:\n' + str(script['yt_description']))
@@ -266,6 +270,8 @@ def _norm(raw: dict, sh: list) -> dict:
     th = raw.get('threads')
     posts = [str(p or '').strip() for p in (th if isinstance(th, list) else [])]
     out['threads'] = [p for p in posts if p][:LIM['th_posts']]
+    tg = raw.get('telegram') if isinstance(raw.get('telegram'), dict) else {}
+    out['telegram'] = {'text': str(tg.get('text') or '').strip()[:LIM['tg']], 'link': tg.get('link') if tg.get('link') in TG_LINKS else 'auto'}
     return out
 
 
@@ -293,6 +299,8 @@ def generate(eid: str, actor: str = 'owner', part: str | None = None, ws: str = 
             pub[part] = new[part]
         else:
             pub = new
+        if old and isinstance(old.get('telegram'), dict) and old['telegram'].get('link') in TG_LINKS:
+            pub['telegram'] = dict(pub.get('telegram') or {}, link=old['telegram']['link'])
         pub.update(generated_at=_now(), model=MODEL, generated_by=actor)
         _store(eid, pub)
         db.audit(actor, 'pub_generate', {'id': eid, 'part': part or 'all'}, ws)
@@ -307,6 +315,9 @@ def save(eid: str, data: dict, actor: str = 'owner', ws: str = config.WORKSPACE)
     sh = shorts(meta, script)
     old = meta.get('pub') if isinstance(meta.get('pub'), dict) else {}
     merged = {k: data.get(k, old.get(k)) for k in PARTS}
+    tgx = merged.get('telegram') if isinstance(merged.get('telegram'), dict) else {}
+    if len(str(tgx.get('text') or '').strip()) > LIM['tg']:
+        raise ValueError(f'Telegram: текст длиннее {LIM["tg"]} знаков — к нему ещё добавятся заголовок, ссылка и хэштеги')
     pub = _norm(merged, sh)
     if not pub['youtube']['title']:
         raise ValueError('Нужен заголовок YouTube')
@@ -328,8 +339,15 @@ def view(eid: str, ws: str = config.WORKSPACE) -> dict:
     sh = shorts(meta, script)
     pub = meta.get('pub') if isinstance(meta.get('pub'), dict) else None
     files = {x['name']: x for x in (meta.get('shorts') or []) if isinstance(x, dict) and x.get('name')}
+    from . import telegram
+    tg = telegram.status(ws)
+    lk = telegram.links(r, _privacy(r, ws))
     return {
         'texts': pub, 'channel_tags': channel_tags(d), 'limits': LIM,
+        'telegram': {'connected': tg.get('connected', False), 'can_post': tg.get('can_post', False),
+                     'chat': (tg.get('chat') or {}).get('title') or (tg.get('chat') or {}).get('username') or '',
+                     'links': {'youtube': bool(lk['youtube']), 'youtube_open': lk['youtube_open'], 'facebook': bool(lk['facebook'])},
+                     'auto': 'youtube' if lk['youtube'] and lk['youtube_open'] else 'facebook' if lk['facebook'] else 'none'},
         'shorts': [{'name': s['name'], 'title': s['title'], 'file': s['name'] in files} for s in sh],
         'can_write': bool(script.get('segments') or meta.get('final_url')),
         'video_ready': bool(meta.get('final_url')),
@@ -339,8 +357,15 @@ def view(eid: str, ws: str = config.WORKSPACE) -> dict:
             'facebook': {'id': meta.get('fb_video_id') or '', 'url': meta.get('fb_url') or ''},
             'threads': {'id': meta.get('threads_post_id') or '', 'url': meta.get('threads_url') or '',
                         'posted': len(meta.get('threads_chain') or ([meta['threads_post_id']] if meta.get('threads_post_id') else []))},
+            'telegram': {'url': (meta.get('tg_post') or {}).get('url') or '', 'at': (meta.get('tg_post') or {}).get('at') or '',
+                         'shorts': {k: v.get('url') or '' for k, v in (meta.get('tg_shorts') or {}).items() if isinstance(v, dict)}},
         },
     }
+
+
+def _privacy(r: dict, ws: str) -> str:
+    d = db.q1('SELECT youtube_privacy FROM studio_directions WHERE workspace_id = %s AND id = %s', (ws, r.get('direction_id'))) or {}
+    return d.get('youtube_privacy') or 'private'
 
 
 def tags_line(pub: dict, extra: list, d_tags: list) -> str:
@@ -359,6 +384,29 @@ def for_publish(ep: dict, ws: str = config.WORKSPACE) -> dict | None:
     return {'title': yt.get('title') or '', 'fb_text': (pub.get('facebook') or {}).get('text') or '',
             'fb_tags': tags_line(pub, yt.get('hashtags') or [], ct),
             'threads': [p for p in (pub.get('threads') or []) if p]}
+
+
+def for_telegram(ep: dict, ws: str = config.WORKSPACE) -> dict:
+    """Пост в Telegram: заголовок, текст (свой для Telegram; нет — как у Facebook, иначе черновик описания), хэштеги, ссылка."""
+    r, meta, script, d = _ctx(ep['id'], ws)
+    pub = meta.get('pub') if isinstance(meta.get('pub'), dict) else {}
+    yt, tg = pub.get('youtube') or {}, pub.get('telegram') or {}
+    text = tg.get('text') or (pub.get('facebook') or {}).get('text') or str(script.get('yt_description') or '')
+    return {'title': yt.get('title') or script.get('yt_title') or script.get('title') or ep['id'], 'text': text,
+            'tags': tags_line(pub, yt.get('hashtags') or [], channel_tags(d)), 'link': tg.get('link') if tg.get('link') in TG_LINKS else 'auto',
+            'privacy': _privacy(r, ws)}
+
+
+def for_telegram_short(ep: dict, name: str, ws: str = config.WORKSPACE) -> dict:
+    """Подпись к шортсу в Telegram: его заголовок и описание, хэштеги, ссылка на весь выпуск."""
+    r, meta, script, d = _ctx(ep['id'], ws)
+    pub = meta.get('pub') if isinstance(meta.get('pub'), dict) else {}
+    x = (pub.get('shorts') or {}).get(name) or {}
+    made = next((s for s in (meta.get('shorts') or []) if isinstance(s, dict) and s.get('name') == name), {})
+    tg = pub.get('telegram') or {}
+    return {'title': x.get('title') or made.get('title') or name, 'text': x.get('description') or '',
+            'tags': tags_line(pub, x.get('hashtags') or [], channel_tags(d)), 'link': tg.get('link') if tg.get('link') in TG_LINKS else 'auto',
+            'privacy': _privacy(r, ws)}
 
 
 # ---------- сами, после монтажа ----------

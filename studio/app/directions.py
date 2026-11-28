@@ -22,6 +22,7 @@ STOCK = ('coverr', 'wikimedia', 'openverse', 'nasa')
 FLAGS = ('enabled', 'sources_on', 'ai_images', 'publish_youtube', 'publish_telegram', 'publish_tiktok', 'cut_pauses', 'cut_retakes',
          'publish_facebook', 'publish_threads')
 EXTRA = ('sort', 'publish_facebook', 'publish_threads', 'hashtags')  # есть в Студии, но не в запросе n8n: Facebook и Threads публикует сама Студия
+# publish_telegram — из бывшей таблицы, в запросе n8n он есть, но К6 его не читает: «Telegram вместе с YouTube» делает Студия (telegram.py)
 TAG_RE = re.compile(r'#?([^\W_][\w]{0,49})')
 
 
@@ -227,7 +228,7 @@ def create(did: str, data: dict, copy_from: str | None = None, actor: str = 'own
 
 def meta() -> dict:
     """Справочники для формы."""
-    from . import meta  # подключены ли Facebook и Threads — чтобы в форме не включить публикацию «в никуда»
+    from . import meta, telegram  # подключены ли Facebook, Threads и Telegram — чтобы в форме не включить публикацию «в никуда»
     st = meta.status()
     return {'kinds': KINDS, 'modes': MODES, 'privacy': PRIVACY, 'langs': LANGS, 'delivery': DELIVERY, 'stock': list(STOCK),
-            'connected': {'facebook': st['facebook']['connected'], 'threads': st['threads']['connected']}}
+            'connected': {'facebook': st['facebook']['connected'], 'threads': st['threads']['connected'], 'telegram': telegram.status()['connected']}}

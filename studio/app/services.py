@@ -78,25 +78,72 @@ def _episode_row(r: dict, cost_map: dict, ins_map: dict) -> dict:
     return out
 
 
-def episodes(limit: int = 30, kind: str | None = None) -> list:
+def _dir_names() -> dict:
+    return {r['id']: r['name'] for r in db.q('SELECT id, name FROM studio_directions WHERE workspace_id = %s', (config.WORKSPACE,))} \
+        if db.table_exists('studio_directions') else {}
+
+
+def episodes(limit: int = 30, kind: str | None = None, direction: str | None = None) -> list:
     if not _k_ready():
         return []
-    where = ''
+    cond, args = [], []
     if kind == 'script':
-        where = "WHERE e.mode IN ('sources', 'topic')"
+        cond.append("e.mode IN ('sources', 'topic')")
     elif kind == 'recording':
-        where = "WHERE e.mode NOT IN ('sources', 'topic')"
+        cond.append("e.mode NOT IN ('sources', 'topic')")
+    if direction:
+        cond.append('e.direction_id = %s')
+        args.append(direction)
+    where = ('WHERE ' + ' AND '.join(cond)) if cond else ''
     rows = db.q(f"""SELECT e.id, e.direction_id, e.mode, e.minutes, e.topic, e.status, e.preview_url, e.youtube_id, e.created_at, e.updated_at,
             e.meta->>'script_id' AS script_id,
             coalesce(e.script->>'yt_title', e.script->>'title', s.script->>'yt_title', s.script->>'title') AS title
         FROM k_episodes e LEFT JOIN k_episodes s ON s.id = e.meta->>'script_id'
-        {where} ORDER BY e.created_at DESC LIMIT %s""", (max(1, min(int(limit), 200)),))
+        {where} ORDER BY e.created_at DESC LIMIT %s""", (*args, max(1, min(int(limit), 200))))
     ids = {r['id'] for r in rows} | {r['script_id'] for r in rows if r.get('script_id')}
     cost_map = costs.episode_costs(list(ids))
     ins = db.q("SELECT episode_id, count(*)::int AS total, count(*) FILTER (WHERE status = 'ok')::int AS ok FROM k_inserts "
                "WHERE episode_id = ANY(%s) GROUP BY 1", (list(ids),)) if ids and db.table_exists('k_inserts') else []
     ins_map = {r['episode_id']: r for r in ins}
-    return [_episode_row(r, cost_map, ins_map) for r in rows]
+    names = _dir_names()
+    return [dict(_episode_row(r, cost_map, ins_map), direction_name=names.get(r['direction_id']) or r['direction_id'] or '') for r in rows]
+
+
+def episode_directions() -> list:
+    """Направления для фильтра на странице «Выпуски»: название и сколько выпусков и сценариев."""
+    if not _k_ready():
+        return []
+    names = _dir_names()
+    cnt = {r['d']: r['n'] for r in db.q('SELECT direction_id AS d, count(*)::int AS n FROM k_episodes GROUP BY 1')}
+    ids = list(names) + [d for d in cnt if d not in names and d]
+    return [{'id': d, 'name': names.get(d) or d, 'n': cnt.get(d, 0)} for d in ids if cnt.get(d)]
+
+
+# ---------- ошибки конвейера: «разобрано» ----------
+# Разобранная ошибка не горит красным в меню и на «Обзоре», но в журнале и в MCP видна (с пометкой ack).
+ACK_KEY = 'errors_ack'
+
+
+def acked() -> set:
+    return set((db.get_setting(ACK_KEY, {}) or {}).get('ids') or [])
+
+
+def ack_errors(ids: list | None, actor: str = 'owner') -> dict:
+    """Отметить ошибки разобранными: список номеров запусков или (ids=None) — все за неделю."""
+    if ids is None:
+        try:
+            ids = [e['id'] for e in recent_errors(24 * 7, limit=100)]
+        except n8n.N8nError as e:
+            raise ValueError('n8n не ответил — попробуй позже: ' + str(e)[:120])
+    ids = [str(i)[:40] for i in ids if str(i).strip()][:200]
+    if not ids:
+        return {'acked': 0}
+    rec = db.get_setting(ACK_KEY, {}) or {}
+    have = list(rec.get('ids') or [])
+    new = [i for i in ids if i not in have]
+    db.set_setting(ACK_KEY, {'ids': (have + new)[-500:], 'at': dt.datetime.now(dt.timezone.utc).isoformat(), 'by': actor})
+    db.audit(actor, 'errors_ack', {'ids': new[:20], 'n': len(new)})
+    return {'acked': len(new)}
 
 
 def episode(eid: str) -> dict | None:
@@ -194,7 +241,7 @@ def _report(r: dict, sid: str | None, video: dict | None, sc: dict) -> dict:
 
 
 def _social_todo(r: dict, video: dict | None) -> list:
-    """Куда этот готовый выпуск ещё можно отправить: Facebook / Threads включены в направлении, но там его пока нет."""
+    """Куда этот готовый выпуск ещё можно отправить: Facebook / Threads / Telegram включены в направлении, но там его пока нет."""
     m = r.get('meta') or {}
     if not video or r.get('status') not in ('published', 'partial') or m.get('social_pending'):
         return []
@@ -203,8 +250,8 @@ def _social_todo(r: dict, video: dict | None) -> list:
         t = meta_mod.flag_targets(r['id'])
     except LookupError:
         return []
-    done = {'facebook': m.get('fb_video_id'), 'threads': m.get('threads_post_id')}
-    return [k for k in t if not done[k]]
+    done = {'facebook': m.get('fb_video_id'), 'threads': m.get('threads_post_id'), 'telegram': (m.get('tg_post') or {}).get('message_id')}
+    return [k for k in t if not done.get(k)]
 
 
 def allowed_actions(r: dict) -> list:
@@ -236,7 +283,7 @@ def _video(meta: dict, preview_url: str | None) -> dict | None:
 
 
 def _social(meta: dict) -> dict:
-    """Где ещё опубликовано: Facebook и Threads — ссылка или причина, почему нет; pending — ещё публикуется."""
+    """Где ещё опубликовано: Facebook, Threads и Telegram — ссылка или причина, почему нет; pending — ещё публикуется."""
     soc = meta.get('social') or {}
     out = {}
     for k, idk, urlk in (('facebook', 'fb_video_id', 'fb_url'), ('threads', 'threads_post_id', 'threads_url')):
@@ -247,6 +294,11 @@ def _social(meta: dict) -> dict:
                 out[k] = {'ok': False, 'url': out[k]['url'], 'error': s.get('error') or 'цепочка вышла не вся'}
         elif s:
             out[k] = {'ok': False, 'error': s.get('error') or ''}
+    tp, ts = meta.get('tg_post') or {}, soc.get('telegram') or {}
+    if tp.get('message_id'):
+        out['telegram'] = {'ok': True, 'url': tp.get('url') or ''}
+    elif ts:
+        out['telegram'] = {'ok': False, 'error': ts.get('error') or ''}
     if meta.get('social_pending'):
         out['pending'] = True
     return out
@@ -348,6 +400,9 @@ def recent_errors(hours: int = 24, limit: int = 50) -> list:
             continue
         if started >= since:
             out.append(e)
+    ack = acked() if out else set()
+    for e in out:
+        e['ack'] = str(e.get('id')) in ack
     return out
 
 

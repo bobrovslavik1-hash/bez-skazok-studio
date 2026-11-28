@@ -36,6 +36,7 @@
     copy: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a1 1 0 0 1 1-1h10"/></svg>',
     plug: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M9 7V3M15 7V3"/><path d="M6 7h12v4a6 6 0 0 1-12 0V7z"/><path d="M12 17v4"/></svg>',
     fb: '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M14 8h3V4h-3c-2.8 0-4.5 1.8-4.5 4.6V11H7v4h2.5v8h4v-8h3l.5-4h-3.5V8.8c0-.5.3-.8.5-.8z"/></svg>',
+    tg: '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M21.4 4.3 2.9 11.4c-1.3.5-1.2 1.2-.2 1.5l4.7 1.5 1.8 5.6c.2.6.4.8.9.8.4 0 .6-.2.9-.4l2.3-2.2 4.7 3.5c.9.5 1.5.2 1.7-.8l3.1-14.6c.3-1.3-.5-1.9-1.4-1.5zM9.9 14.2l-.4 4.2-1.4-4.6 10-6.3-8.2 6.7z"/></svg>',
     threads: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"><path d="M16.5 11.2c-.3-2.6-1.9-3.9-4.3-3.9-2.6 0-4.2 1.9-4.2 4.7s1.6 4.8 4.4 4.8c2 0 3.6-1.1 3.6-3 0-2.4-2.6-3-4.6-2.6"/><path d="M19.5 8.5C18.3 5.2 15.6 3.5 12 3.5c-5 0-8 3.4-8 8.5s3 8.5 8 8.5c3.9 0 6.6-2 7.4-5.2"/></svg>',
     dirs: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3 3 7.5l9 4.5 9-4.5L12 3z"/><path d="m3 12 9 4.5 9-4.5"/><path d="m3 16.5 9 4.5 9-4.5"/></svg>',
     play: '<svg viewBox="0 0 16 16" fill="#fff"><path d="M3 1.8v12.4c0 .6.7 1 1.2.7l10-6.2c.5-.3.5-1.1 0-1.4l-10-6.2C3.7.8 3 1.2 3 1.8z"/></svg>',
@@ -396,11 +397,33 @@
   }
 
   // ---------- Обзор ----------
+  // «Что сделать сейчас»: короткий список дел из того, что видно на «Обзоре» — как входящие у больших сервисов
+  function todoHTML(eps, errs, bal) {
+    const items = [];
+    const seen = new Set();
+    for (const e of eps) {
+      if (seen.has(e.id)) continue;
+      seen.add(e.id);
+      if (['inserts_ready', 'script_ready'].includes(e.status)) items.push([I.prompter, 'Записать выпуск', e.title,
+        `<a class="btn small primary" href="#/prompter/view?s=${encodeURIComponent(e.id)}">Суфлёр</a>`]);
+      else if (['preview_ready', 'partial'].includes(e.status)) items.push([I.film, 'Проверить и опубликовать', e.title,
+        `<button class="btn small primary" data-todo-ep="${esc(e.id)}">Открыть</button>`]);
+      else if (e.status === 'error') items.push([I.log, 'Выпуск с ошибкой', e.title, `<button class="btn small" data-todo-ep="${esc(e.id)}">Открыть</button>`]);
+    }
+    if (errs.length) items.push([I.log, 'Разобрать ошибки конвейера', `${errs.length} за сутки — в журнале видно, где и что сломалось`,
+      `<a class="btn small" href="#/logs?view=errors">Журнал</a>`]);
+    if (bal && bal.known && bal.low) items.push([I.coin, 'Пополнить баланс Claude', `осталось около ${money(bal.estimate)}`, `<a class="btn small" href="#/costs">Расходы</a>`]);
+    return `<div class="card todo"><div class="card-h"><h2>Что сделать сейчас</h2>${items.length ? `<span class="faint">${items.length}</span>` : ''}</div>
+      <div class="card-b flush">${items.length ? `<ul class="rows">${items.slice(0, 6).map(([ic, what, title, btn]) =>
+        `<li><span class="todo-ic">${ic}</span><div class="grow"><div class="title">${esc(what)}</div><div class="meta">${esc(title || '')}</div></div>${btn}</li>`).join('')}</ul>`
+        : `<div class="empty"><b>Дел нет</b>Новых выпусков на проверку нет, ошибок нет. Конвейер ждёт новостей.</div>`}</div></div>`;
+  }
+
   async function pageOverview(view) {
     view.innerHTML = head('Обзор', 'Что происходит с конвейером прямо сейчас', reportBtn) + loading();
     let d;
     try { d = await api('/api/overview'); } catch (e) { view.innerHTML = head('Обзор', '', reportBtn) + failBox(e.message); return; }
-    state.errors24 = (d.errors_24h || []).length;
+    state.errors24 = (d.errors_24h || []).filter(e => !e.ack).length;
     markNav();
     const b = d.balance || {};
     const pct = b.known && b.baseline_usd > 0 ? Math.max(0, Math.min(100, b.estimate / b.baseline_usd * 100)) : 0;
@@ -411,7 +434,9 @@
       : `<div class="kpi card"><div class="label">Баланс Claude</div><div class="value" style="font-size:20px">не указан</div>
           <div class="sub"><a href="#/costs">Указать остаток</a> — и я предупрежу при $5</div></div>`;
     const c = d.costs || {};
-    const errs = d.errors_24h || [];
+    const allErrs = d.errors_24h || [];
+    const errs = allErrs.filter(e => !e.ack);
+    const acked = allErrs.length - errs.length;
     const last = errs[0];
     const s = d.server || {};
     const ok = (v, yes, no, warn) => v === true ? badge(yes, 'ok') : v === false ? badge(no, 'err') : badge(warn || 'нет данных', 'warn');
@@ -426,7 +451,7 @@
             <dt>Процессор</dt><dd class="num">${h.cpu_cores ? `${h.cpu_cores} ${plural(h.cpu_cores, 'ядро', 'ядра', 'ядер')} · сейчас ${pc(h.cpu_pct)}${wk.cpu_max != null ? ` · пик ${pc(wk.cpu_max)}` : ''}` : '—'}</dd>` : '';
     const diskLeft = h.disk_days_left != null ? ` · хватит на ~${h.disk_days_left} ${plural(h.disk_days_left, 'день', 'дня', 'дней')}` : '';
     refreshTally(d.episodes || []);
-    view.innerHTML = head('Обзор', 'Что происходит с конвейером прямо сейчас', reportBtn) + onairHTML(d.episodes || []) + `
+    view.innerHTML = head('Обзор', 'Что происходит с конвейером прямо сейчас', reportBtn) + onairHTML(d.episodes || []) + todoHTML(d.episodes || [], errs, b) + `
       <div class="grid kpis">
         ${balance}
         <div class="kpi card"><div class="label">Расходы за 30 дней</div><div class="value num">${money(c.d30)}</div>
@@ -434,7 +459,7 @@
         <div class="kpi card"><div class="label">Ждут записи</div><div class="value num">${d.waiting_scripts ?? '—'}</div>
           <div class="sub">${d.waiting_scripts ? 'сценарии готовы, вставки собраны' : 'готовых сценариев нет'}</div></div>
         <div class="kpi card ${errs.length ? 'bad' : 'good'}"><div class="label">Ошибки за сутки</div><div class="value num">${d.errors_note ? '—' : errs.length}</div>
-          <div class="sub">${d.errors_note ? esc(d.errors_note) : last ? esc(last.workflow) + ' · ' + when(last.started_at) : 'всё спокойно'}</div></div>
+          <div class="sub">${d.errors_note ? esc(d.errors_note) : last ? esc(last.workflow) + ' · ' + when(last.started_at) : 'всё спокойно'}${acked ? ` · ещё ${acked} разобрано` : ''}</div></div>
       </div>
       <div class="grid two">
         <div class="card"><div class="card-h"><h2>Последние выпуски</h2><a href="#/episodes">Все</a></div>
@@ -449,19 +474,20 @@
             <dt>Версия Студии</dt><dd class="mono">${esc((d.version || {}).commit || 'dev')}</dd>
           </dl></div></div>
           <div class="card"><div class="card-h"><h2>Ошибки</h2><a href="#/logs?view=errors">Журнал</a></div>
-            <div class="card-b flush">${errs.length ? `<ul class="rows">${errs.slice(0, 4).map(runRow).join('')}</ul>`
+            <div class="card-b flush">${errs.length ? `<ul class="rows">${errs.slice(0, 4).map(r => runRow(r)).join('')}</ul>`
               : `<div class="empty"><b>Ошибок нет</b>за последние 24 часа</div>`}</div></div>
         </div>
       </div>`;
     bindRuns(view);
     bindEps(view);
     view.querySelectorAll('[data-onair]').forEach(el => el.addEventListener('click', () => openEpisode(el.dataset.onair)));
+    view.querySelectorAll('[data-todo-ep]').forEach(el => el.addEventListener('click', () => openEpisode(el.dataset.todoEp)));
     tick();
   }
 
   // ---------- Выпуски ----------
   function epTags(e) {
-    return `${badge(e.status_label || e.status, EP_TONE[e.status] || '')}${badge(e.kind === 'script' ? 'Сценарий' : 'Запись', 'plain')}${e.direction ? badge(e.direction, 'plain') : ''}`;
+    return `${badge(e.status_label || e.status, EP_TONE[e.status] || '')}${badge(e.kind === 'script' ? 'Сценарий' : 'Запись', 'plain')}${e.direction ? badge(e.direction_name || e.direction, 'plain') : ''}`;
   }
   function epMeta(e) {
     const parts = [e.kind === 'script' ? 'сценарий' : 'запись', when(e.created_at)];
@@ -481,25 +507,69 @@
     }));
   }
 
+  // доска по этапам — как у досок задач: где сейчас каждый выпуск и что с ним сделать
+  const BOARD = [
+    { t: 'Сценарии', st: ['script_ready', 'inserts_ready'], hint: 'ждут записи' },
+    { t: 'Монтаж', st: ['recording', 'rendering', 'redo'], hint: 'сервер собирает' },
+    { t: 'Проверка', st: ['preview_ready', 'partial'], hint: 'посмотри и реши' },
+    { t: 'Публикация', st: ['publish_requested', 'publishing'], hint: 'уходит на площадки' },
+    { t: 'Вышли', st: ['published'], hint: 'последние', max: 8 },
+    { t: 'Ошибки', st: ['error'], hint: 'нужна помощь', hideEmpty: true },
+  ];
+  const EVIEW = 'studio.episodes.view';
+  function boardCard(e, many) {
+    const next = ['script_ready', 'inserts_ready'].includes(e.status) ? `<a class="btn small primary" href="#/prompter/view?s=${encodeURIComponent(e.id)}">Суфлёр</a>`
+      : ['preview_ready', 'partial'].includes(e.status) ? `<button class="btn small primary">Проверить</button>`  // клик дойдёт до карточки
+      : e.youtube_url ? `<a class="btn small" href="${esc(e.youtube_url)}" target="_blank" rel="noopener">YouTube</a>` : '';
+    return `<div class="bd-card${EP_BUSY.includes(e.status) ? ' busy' : ''}" data-ep="${esc(e.id)}">
+      <div class="bd-t">${esc(e.title || e.id)}</div>
+      <div class="bd-m">${many && e.direction_name ? `<span>${esc(e.direction_name)}</span>` : ''}<span>${when(e.updated_at || e.created_at)}</span>
+        ${EP_BUSY.includes(e.status) ? `<span class="bd-live">${esc(e.status_label)}</span>` : ''}</div>
+      ${next ? `<div class="bd-f">${next}</div>` : ''}</div>`;
+  }
+
   async function pageEpisodes(view, params) {
     const kind = params.get('kind') || '';
+    const dir = params.get('dir') || '';
+    let vmode = params.get('view');
+    if (!['list', 'board'].includes(vmode)) { try { vmode = localStorage.getItem(EVIEW) || 'list'; } catch (e) { vmode = 'list'; } }
+    try { localStorage.setItem(EVIEW, vmode); } catch (e) { /* без памяти — по умолчанию списком */ }
+    const url = o => '#/episodes?' + new URLSearchParams(Object.entries(Object.assign({ kind, dir, view: vmode }, o)).filter(([, v]) => v)).toString();
     const seg = `<div class="seg">${[['', 'Все'], ['recording', 'Записи'], ['script', 'Сценарии']].map(([k, t]) =>
-      `<button data-kind="${k}" class="${k === kind ? 'on' : ''}">${t}</button>`).join('')}</div>`;
-    view.innerHTML = head('Выпуски', 'Сценарии, записи и готовые видео', seg) + loading();
-    view.querySelectorAll('[data-kind]').forEach(b => b.addEventListener('click', () => { location.hash = '#/episodes' + (b.dataset.kind ? '?kind=' + b.dataset.kind : ''); }));
+      `<button data-go="${esc(url({ kind: k }))}" class="${k === kind ? 'on' : ''}">${t}</button>`).join('')}</div>
+      <div class="seg">${[['list', 'Списком'], ['board', 'По этапам']].map(([k, t]) => `<button data-go="${esc(url({ view: k }))}" class="${k === vmode ? 'on' : ''}">${t}</button>`).join('')}</div>`;
+    view.innerHTML = head('Выпуски', 'Сценарии, записи и готовые видео — по всем направлениям', seg) + loading();
+    view.querySelectorAll('[data-go]').forEach(b => b.addEventListener('click', () => { location.hash = b.dataset.go; }));
     let d;
-    try { d = await api('/api/episodes?limit=60' + (kind ? '&kind=' + kind : '')); } catch (e) { view.lastElementChild.outerHTML = failBox(e.message); return; }
+    try { d = await api('/api/episodes?limit=100' + (kind ? '&kind=' + kind : '') + (dir ? '&direction=' + encodeURIComponent(dir) : '')); }
+    catch (e) { view.lastElementChild.outerHTML = failBox(e.message); return; }
     const list = d.episodes || [];
-    const cards = list.map(e => `<div class="card ep"><div class="tags">${epTags(e)}</div><h3>${esc(e.title)}</h3>
-      <div class="meta">${epMeta(e)}</div>
-      <div class="foot">
-        ${e.preview_url ? `<a class="btn small primary" href="${esc(e.preview_url)}" target="_blank" rel="noopener">Смотреть</a>` : ''}
-        ${e.youtube_url ? `<a class="btn small" href="${esc(e.youtube_url)}" target="_blank" rel="noopener">YouTube</a>` : ''}
-        ${e.kind === 'script' ? `<a class="btn small" href="#/prompter/view?s=${encodeURIComponent(e.id)}">Суфлёр</a>` : ''}
-        <button class="btn small" data-ep="${esc(e.id)}">Подробнее</button>
-        ${EP_BUSY.includes(e.status) ? '' : `<button class="btn small icon ep-del" data-del="${esc(e.id)}" title="Удалить" aria-label="Удалить">${I.trash}</button>`}</div></div>`).join('');
-    view.lastElementChild.outerHTML = list.length ? `<div class="grid eps">${cards}</div>`
-      : `<div class="card"><div class="empty"><b>Пусто</b>Здесь появятся сценарии и выпуски</div></div>`;
+    const dirs = d.directions || [];
+    const many = dirs.length > 1 && !dir;
+    const chips = dirs.length > 1 ? `<div class="dir-chips">${[{ id: '', name: 'Все направления', n: dirs.reduce((a, x) => a + x.n, 0) }, ...dirs].map(x =>
+      `<a class="chip${x.id === dir ? ' on' : ''}" href="${esc(url({ dir: x.id }))}">${esc(x.name)}<span>${x.n}</span></a>`).join('')}</div>` : '';
+    let body;
+    if (!list.length) body = `<div class="card"><div class="empty"><b>Пусто</b>Здесь появятся сценарии и выпуски${dir ? ' этого направления' : ''}</div></div>`;
+    else if (vmode === 'board') {
+      const cols = BOARD.map(c => {
+        const items = list.filter(e => c.st.includes(e.status));
+        if (!items.length && c.hideEmpty) return '';
+        return `<section class="bd-col"><div class="bd-h"><b>${c.t}</b><span class="faint">${items.length}</span></div><div class="bd-hint faint">${c.hint}</div>
+          ${items.slice(0, c.max || 50).map(e => boardCard(e, many)).join('') || '<div class="bd-empty faint">пусто</div>'}</section>`;
+      }).join('');
+      const rest = list.filter(e => !BOARD.some(c => c.st.includes(e.status))).length;
+      body = `<div class="board">${cols}</div>${rest ? `<div class="faint" style="margin-top:10px;font-size:12.5px">Не на доске: ${rest} — заменённые, отменённые и записанные сценарии. Они есть в виде «Списком».</div>` : ''}`;
+    } else {
+      body = `<div class="grid eps">${list.map(e => `<div class="card ep"><div class="tags">${epTags(e)}</div><h3>${esc(e.title)}</h3>
+        <div class="meta">${epMeta(e)}</div>
+        <div class="foot">
+          ${e.preview_url ? `<a class="btn small primary" href="${esc(e.preview_url)}" target="_blank" rel="noopener">Смотреть</a>` : ''}
+          ${e.youtube_url ? `<a class="btn small" href="${esc(e.youtube_url)}" target="_blank" rel="noopener">YouTube</a>` : ''}
+          ${e.kind === 'script' ? `<a class="btn small" href="#/prompter/view?s=${encodeURIComponent(e.id)}">Суфлёр</a>` : ''}
+          <button class="btn small" data-ep="${esc(e.id)}">Подробнее</button>
+          ${EP_BUSY.includes(e.status) ? '' : `<button class="btn small icon ep-del" data-del="${esc(e.id)}" title="Удалить" aria-label="Удалить">${I.trash}</button>`}</div></div>`).join('')}</div>`;
+    }
+    view.lastElementChild.outerHTML = chips + body;
     bindEps(view);
     view.querySelectorAll('[data-del]').forEach(b => b.addEventListener('click', async () => {
       const e = list.find(x => x.id === b.dataset.del);
@@ -542,8 +612,12 @@
     const shBody = shs.length ? shs.map(s => {
       const x = (t.shorts || {})[s.name] || {};
       const link = pd.youtube && pd.youtube.shorts && pd.youtube.shorts[s.name];
+      const tgLink = ((pd.telegram || {}).shorts || {})[s.name];
+      const tgOn = (p.telegram || {}).connected && s.file && p.video_ready;
       return `<div class="pub-short"><div class="pub-h"><b>${esc(x.title || s.title || s.name)}</b><span class="pub-btns">
         ${s.file ? `<a class="btn small" href="/api/episodes/${encodeURIComponent(e.id)}/file/${encodeURIComponent(s.name)}" download>${I.download}Скачать</a>` : ''}
+        ${tgLink ? `<a class="btn small" href="${esc(tgLink)}" target="_blank" rel="noopener">${I.tg}В Telegram ✓</a>`
+          : tgOn ? `<button class="btn small" data-tgshort="${esc(s.name)}" data-tgtitle="${esc(x.title || s.title || s.name)}">${I.tg}В Telegram</button>` : ''}
         <button class="btn small" data-copytt="${esc(s.name)}">${I.copy}Подпись для TikTok</button></span></div>
         ${pubFld(`shorts.${s.name}.title`, 'Заголовок на YouTube', x.title, { lim: L.short_title })}
         ${pubFld(`shorts.${s.name}.description`, 'Описание на YouTube', x.description, { area: true, rows: 2 })}
@@ -577,8 +651,27 @@
           : fb.url ? 'к первому посту прикрепится ссылка на видео в Facebook' : 'ссылка на видео прикрепится, если выпуск уже в Facebook — опубликуй его первым'}</span>`);
     const thCard = card('threads', 'Threads · цепочка постов', `<div class="pub-posts">${posts.map((x, i) => pubPost(i, x, L.th_post)).join('')}</div>
       <div><button class="btn small" data-thadd>+ пост</button></div>`, thFoot);
+    const tgS = p.telegram || {}, tgPd = pd.telegram || {};
+    const tgT = t.telegram || { text: (t.facebook || {}).text || '', link: 'auto', fallback: true };
+    const tgErr = soc.telegram && !soc.telegram.ok ? soc.telegram.error : '';
+    const LNK = { youtube: 'YouTube', facebook: 'Facebook', none: 'без ссылки' };
+    const lk = tgS.links || {};
+    let tgFoot;
+    if (tgPd.url) tgFoot = `<span class="dot ok"></span><a href="${esc(tgPd.url)}" target="_blank" rel="noopener">Опубликовано в Telegram</a>`;
+    else if (!tgS.connected) tgFoot = `<span class="faint">Сначала подключи канал: <a href="#/connections">«Подключения»</a> → Telegram</span>`;
+    else if (!p.video_ready) tgFoot = `<span class="faint">Кнопка появится после монтажа</span>`;
+    else tgFoot = `<button class="btn primary" data-pubto="telegram">${tgErr ? 'Повторить' : 'Опубликовать в Telegram'}</button>`
+      + (tgErr ? `<span class="pub-err">${esc(tgErr)}</span>` : `<span class="faint">выйдет сразу в канал${tgS.chat ? ' «' + esc(tgS.chat) + '»' : ''}</span>`);
+    const tgCard = card('telegram', 'Telegram · пост в канал',
+      pubFld('telegram.text', 'Текст поста', tgT.text, { area: true, rows: 4, lim: L.tg }) +
+      `<label class="pub-f"><span><span class="pub-lbl">Ссылка в посте</span></span><select class="input" data-f="telegram.link">${[
+        ['auto', 'сама: ' + LNK[tgS.auto || 'none']], ['youtube', 'YouTube' + (lk.youtube ? (lk.youtube_open ? '' : ' (сейчас доступ ограниченный)') : ' — выпуска там ещё нет')],
+        ['facebook', 'Facebook' + (lk.facebook ? '' : ' — выпуска там ещё нет')], ['none', 'без ссылки']].map(([k, v]) =>
+        `<option value="${k}"${(tgT.link || 'auto') === k ? ' selected' : ''}>${esc(v)}</option>`).join('')}</select></label>` +
+      `<div class="faint pub-hint">В посте: обложка выпуска, заголовок как у YouTube, этот текст, ссылка и хэштеги: ${esc([ctags, tagStr(yt.hashtags)].filter(Boolean).join(' '))}.
+        ${tgT.fallback ? 'Текст пока взят из Facebook — поправь под Telegram и сохрани.' : ''}</div>`, tgFoot);
     const who = [t.generated_at ? `написал Claude ${dt(t.generated_at)}` : '', t.edited_at ? `правил ${esc(t.edited_by || '')} ${dt(t.edited_at)}` : ''].filter(Boolean).join(' · ');
-    return head + `<div class="pub" data-pub>${ytCard}${shCard}${fbCard}${thCard}
+    return head + `<div class="pub" data-pub>${ytCard}${shCard}${fbCard}${thCard}${tgCard}
       <div class="pub-save"><button class="btn primary" data-pubsave disabled>Сохранить правки</button>
         <button class="btn" data-pubgen>Переписать всё</button><span class="faint">${who}</span></div></div>`;
   }
@@ -612,7 +705,7 @@
       mark();
     });
     const collect = () => {
-      const out = { youtube: {}, shorts: {}, facebook: {}, threads: [] };
+      const out = { youtube: {}, shorts: {}, facebook: {}, threads: [], telegram: {} };
       root.querySelectorAll('[data-f]').forEach(el => {
         const [a, b, c] = el.dataset.f.split('.');
         if (a === 'threads') { if (el.value.trim()) out.threads.push(el.value); }
@@ -643,6 +736,7 @@
       youtube: 'Загрузить выпуск и шортсы на YouTube? Доступ — как в направлении (сейчас «ограниченный»: откроешь сам в YouTube Studio).',
       facebook: 'Опубликовать выпуск в Facebook? Видео выйдет сразу, для всех.',
       threads: 'Опубликовать цепочку в Threads? Посты выйдут сразу, для всех.',
+      telegram: 'Опубликовать пост о выпуске в Telegram-канал? Он выйдет сразу — его увидят подписчики.',
     };
     root.querySelectorAll('[data-pubto]').forEach(b => b.addEventListener('click', async () => {
       const pl = b.dataset.pubto;
@@ -650,10 +744,22 @@
       b.disabled = true;
       try {
         if (root.dataset.dirty) await save();
-        await api(base + '/publish/' + pl, { body: {} });
-        toast(pl === 'youtube' ? 'Отправил на YouTube — начнётся в течение минуты' : 'Публикую — итог придёт в Telegram и появится здесь');
+        const r = await api(base + '/publish/' + pl, { body: {} });
+        toast(pl === 'youtube' ? 'Отправил на YouTube — начнётся в течение минуты'
+          : pl === 'telegram' ? (r && r.again ? 'Этот пост уже в канале' : 'Опубликовано в Telegram') : 'Публикую — итог придёт в Telegram и появится здесь');
         openEpisode(id);
-      } catch (err) { toast(err.message, true); b.disabled = false; }
+      } catch (err) { toast(err.message, true); b.disabled = false; if (pl === 'telegram') openEpisode(id); }
+    }));
+    root.querySelectorAll('[data-tgshort]').forEach(b => b.addEventListener('click', async () => {
+      if (!confirm(`Отправить шортс «${b.dataset.tgtitle}» в Telegram-канал? Он выйдет сразу — его увидят подписчики.`)) return;
+      b.disabled = true;
+      const was = b.innerHTML;
+      b.textContent = 'отправляю…';
+      try {
+        if (root.dataset.dirty) await save();
+        const r = await api(base + '/publish/telegram', { body: { short: b.dataset.tgshort } });
+        toast(r && r.again ? 'Этот шортс уже в канале' : 'Шортс в Telegram'); openEpisode(id);
+      } catch (err) { toast(err.message, true); b.disabled = false; b.innerHTML = was; }
     }));
   }
 
@@ -967,13 +1073,13 @@
           : e.preview_url ? `<a class="btn primary" href="${esc(e.preview_url)}" target="_blank" rel="noopener">Смотреть превью</a>` : ''}
         ${e.youtube_url ? `<a class="btn" href="${esc(e.youtube_url)}" target="_blank" rel="noopener">YouTube</a>` : ''}
         ${socLink('facebook', 'Facebook')}${socLink('threads', 'Threads')}
-        ${!newPub && (e.social_todo || []).length && !socErr.length ? `<button class="btn" data-social>${(e.social_todo.length > 1 ? 'В Facebook и Threads'
-          : e.social_todo[0] === 'facebook' ? 'В Facebook' : 'В Threads')}</button>` : ''}
+        ${!newPub && (e.social_todo || []).length && !socErr.length ? `<button class="btn" data-social>В ${e.social_todo.map(k =>
+          ({ facebook: 'Facebook', threads: 'Threads', telegram: 'Telegram' })[k] || k).join(' и ')}</button>` : ''}
         ${e.kind === 'script' ? `<a class="btn" href="#/prompter/view?s=${encodeURIComponent(e.id)}">Открыть в суфлёре</a>` : ''}
         ${EP_BUSY.includes(e.status) ? '' : `<button class="btn danger" data-delep>${I.trash}Удалить</button>`}
       </div>
       ${e.status === 'publish_requested' ? `<div class="note">Публикация начнётся в течение минуты — итог придёт в Telegram и появится здесь.</div>` : ''}
-      ${soc.pending ? `<div class="note">Facebook и Threads публикуются в фоне — длинное видео грузится несколько минут, итог придёт в Telegram.</div>` : ''}
+      ${soc.pending ? `<div class="note">Соцсети публикуются в фоне — длинное видео в Facebook грузится несколько минут, итог придёт в Telegram.</div>` : ''}
       ${!newPub && socErr.length && !soc.pending ? `<div class="note warnnote">Не опубликовано — ${socErr.join(' · ')}.
         <div style="margin-top:8px"><button class="btn small" data-social>Повторить Facebook и Threads</button> <span class="faint">уже выложенное второй раз не пойдёт</span></div></div>` : ''}
       ${v ? `
@@ -1053,7 +1159,12 @@
   // ---------- Подключения ----------
   // Каналы и аккаунты, куда публикует конвейер. YouTube входит через n8n (Credentials) — Студия секретов не видит.
   // Facebook и Threads подключаются здесь же кнопкой (вход Meta): ключи доступа Студия хранит зашифрованными и не показывает.
-  const PLAT_ICON = { youtube: () => I.yt, facebook: () => I.fb, threads: () => I.threads };
+  const PLAT_ICON = { youtube: () => I.yt, facebook: () => I.fb, threads: () => I.threads, telegram: () => I.tg };
+  // Telegram-канал: бот — администратор канала; токен вписывается только сюда
+  const HOWTO_TG = ['В Telegram открой @BotFather → /mybots → бот конвейера (или новый: /newbot) → «API Token» → скопируй токен.',
+    'Открой свой канал → «Управление каналом» → «Администраторы» → «Добавить администратора» → найди бота → оставь право «Публикация сообщений» → «Сохранить».',
+    'Здесь нажми «Подключить», вставь токен и адрес канала — Студия проверит, что бот может публиковать.',
+    'Токен — как пароль: вписывай только сюда, не в чат. Он хранится зашифрованным и назад не показывается.'];
   const HOWTO_YT = ['В n8n открой Credentials → Add credential → «YouTube OAuth2 API».', 'Нажми «Sign in with Google» и войди той почтой, на которой канал.',
     'Назови вход «YouTube — канал …» и сохрани — он сам появится здесь.'];
   // запись входа в n8n есть, но вход в Google не выполнен (или устарел) — что сделать
@@ -1140,11 +1251,25 @@
       return `<div class="note"><b>Один раз — приложение Meta</b>${steps}</div>
         <div class="actions">${appBtn('Вписать номер и секрет приложения', 'primary')}</div>`;
     };
+    const T = d.telegram || {};
+    const tgBlock = () => {
+      if (!T.connected) return `<div class="note"><b>Как подключить канал</b><ol class="conn-steps">${HOWTO_TG.map(x => `<li>${esc(x)}</li>`).join('')}</ol></div>
+        <div class="actions"><button class="btn primary" data-tgset>Подключить</button></div>`;
+      const ch = T.chat || {};
+      return `<div class="conn-acc"><div class="conn-acc-t"><span class="dot ${T.can_post ? 'ok' : 'err'}"></span><b>${esc(ch.title || '@' + ch.username)}</b>
+          ${ch.link ? `<a href="${esc(ch.link)}" target="_blank" rel="noopener">открыть</a>` : ''}</div>
+        <div class="${T.can_post ? 'faint' : 'conn-warn'}">${T.can_post ? `бот @${esc((T.bot || {}).username)} — администратор, может публиковать` : esc(T.error || 'бот не может публиковать')}</div>
+        <div class="faint">подключено ${when(T.connected_at)}${T.checked_at && T.checked_at !== T.connected_at ? ' · проверено ' + when(T.checked_at) : ''}</div>
+        <div class="actions"><button class="btn small" data-tgcheck>Проверить</button><button class="btn small" data-tgset>Изменить</button>
+          <button class="btn small danger" data-tgoff>Отключить</button></div></div>`;
+    };
     const card = (pid) => {
       const p = P[pid] || { accounts: [], directions: [], publications: [] };
-      const isMeta = pid !== 'youtube';
+      const isTg = pid === 'telegram';
+      const isMeta = pid === 'facebook' || pid === 'threads';
       const ytOk = p.accounts.some(a => a.check && a.check.state === 'ok');
-      const [st, tone] = isMeta ? metaState(pid) : ytOk ? ['подключено', 'ok'] : p.accounts.length ? ['нужно войти', 'warn'] : ['не подключено', ''];
+      const [st, tone] = isTg ? (T.connected ? (T.can_post ? ['подключено', 'ok'] : ['не может публиковать', 'err']) : ['не подключено', ''])
+        : isMeta ? metaState(pid) : ytOk ? ['подключено', 'ok'] : p.accounts.length ? ['нужно войти', 'warn'] : ['не подключено', ''];
       const accs = p.accounts.map(a => {
         const ck = a.check || { state: 'unknown', channels: [] };
         const [dot, label] = YT_STATE[ck.state] || YT_STATE.unknown;
@@ -1161,7 +1286,8 @@
             <button class="btn small" data-recheck>Проверить вход</button></div></div>`;
       }).join('');
       const dirs = p.directions.length ? p.directions.map(x => badge(x.name + (x.privacy ? ' · ' + (PRIV[x.privacy] || x.privacy) : ''), x.enabled ? 'info' : '')).join(' ')
-        : `<span class="muted">ни одно направление сюда не публикует${isMeta ? ' — включается в «Направлениях» → Публикация' : ''}</span>`;
+        : `<span class="muted">${isTg ? 'кнопкой на странице выпуска — любое направление; само после YouTube — пока ни одно (включается в «Направлениях» → Публикация)'
+          : 'ни одно направление сюда не публикует' + (isMeta ? ' — включается в «Направлениях» → Публикация' : '')}</span>`;
       const pubs = p.publications.length ? `<ul class="rows">${p.publications.map(x => `<li><div class="grow"><div class="title">${x.url
           ? `<a href="${esc(x.url)}" target="_blank" rel="noopener">${esc(x.title)}</a>` : esc(x.title)}</div>
           <div class="meta"><span>${when(x.at)}</span>${x.shorts ? `<span>шортсов: ${x.shorts}</span>` : ''}</div></div></li>`).join('')}</ul>`
@@ -1169,14 +1295,14 @@
       return `<div class="card conn"><div class="card-h"><h2><span class="conn-ic ${pid}">${PLAT_ICON[pid]()}</span>${esc(p.title || pid)}</h2>${badge(st, tone)}</div>
         <div class="card-b">
           <div class="faint conn-what">${esc(p.what || '')}</div>
-          ${isMeta ? metaBlock(pid) : (p.accounts.length ? accs : `<div class="note"><b>Как подключить</b><ol class="conn-steps">${HOWTO_YT.map(x => `<li>${esc(x)}</li>`).join('')}</ol></div>`)}
+          ${isTg ? tgBlock() : isMeta ? metaBlock(pid) : (p.accounts.length ? accs : `<div class="note"><b>Как подключить</b><ol class="conn-steps">${HOWTO_YT.map(x => `<li>${esc(x)}</li>`).join('')}</ol></div>`)}
           <div class="section-t">Кто сюда публикует</div><div class="conn-dirs">${dirs}</div>
           <div class="section-t">Последние публикации</div>${pubs}
         </div></div>`;
     };
     view.lastElementChild.outerHTML = (d.error ? failBox('Не получилось спросить n8n: ' + d.error) : '') +
-      `<div class="grid conns">${['youtube', 'facebook', 'threads'].map(card).join('')}</div>
-       <div class="note" style="margin-top:16px">Пароли сюда не вводятся. YouTube входит через n8n — статус здесь проверяется по-настоящему: «подключено» только когда вход в Google выполнен. Facebook и Threads — кнопкой «Подключить»: входишь на сайте Meta, а Студия получает доступ и хранит его зашифрованным, никому не показывая. Куда публикует каждое направление — в «Направлениях».</div>`;
+      `<div class="grid conns">${['youtube', 'facebook', 'threads', 'telegram'].map(card).join('')}</div>
+       <div class="note" style="margin-top:16px">Пароли сюда не вводятся. YouTube входит через n8n — статус здесь проверяется по-настоящему: «подключено» только когда вход в Google выполнен. Facebook и Threads — кнопкой «Подключить»: входишь на сайте Meta, а Студия получает доступ и хранит его зашифрованным, никому не показывая. Telegram — бот-администратор канала: токен бота вписываешь сам, Студия хранит его зашифрованным. Куда публикует каждое направление — в «Направлениях».</div>`;
     view.querySelectorAll('[data-copy]').forEach(b => b.addEventListener('click', () => copyText(b.dataset.copy)));
     view.querySelectorAll('[data-recheck]').forEach(b => b.addEventListener('click', async () => {
       b.disabled = true;
@@ -1224,6 +1350,36 @@
         } catch (e) { toast(e.message, true); ev.target.disabled = false; }
       });
     }));
+    view.querySelectorAll('[data-tgset]').forEach(b => b.addEventListener('click', () => {
+      const ch = T.chat || {};
+      const dlg = drawer('Telegram-канал', T.connected ? esc(ch.title || '') : 'подключение', `<div class="conn-form">
+          ${T.connected ? '' : `<ol class="conn-steps">${HOWTO_TG.slice(0, 2).map(x => `<li>${esc(x)}</li>`).join('')}</ol>`}
+          <label>Токен бота
+            <input class="input" id="tgtok" type="password" autocomplete="new-password" spellcheck="false" maxlength="80"
+              placeholder="${T.connected ? 'сохранён — впиши, только если меняешь бота' : '123456789:AA… — у @BotFather'}"></label>
+          <label>Канал<input class="input" id="tgch" autocomplete="off" maxlength="80" value="${esc(ch.username ? '@' + ch.username : '')}"
+              placeholder="@имя_канала или ссылка t.me/имя_канала"></label>
+          <div class="faint">Студия проверит, что бот — администратор канала и может публиковать. Ничего в канал при этом не отправит.</div>
+          <div class="faint">Токен сразу шифруется на сервере. Назад его не покажу — ни здесь, ни в чате.</div>
+          <div class="actions"><button class="btn primary" id="tgsave">Проверить и подключить</button></div></div>`);
+      dlg.querySelector('#tgsave').addEventListener('click', async (ev) => {
+        ev.target.disabled = true;
+        try {
+          await api('/api/telegram', { method: 'PUT', body: { token: dlg.querySelector('#tgtok').value, channel: dlg.querySelector('#tgch').value } });
+          dlg.querySelector('#tgtok').value = '';
+          toast('Telegram подключён — бот может публиковать в канал'); closeDrawer(); route();
+        } catch (e) { toast(e.message, true); ev.target.disabled = false; }
+      });
+    }));
+    view.querySelectorAll('[data-tgcheck]').forEach(b => b.addEventListener('click', async () => {
+      b.disabled = true;
+      try { const r = await api('/api/telegram/check', { body: {} }); toast(r.can_post ? 'Проверил: бот может публиковать' : r.error, !r.can_post); route(); }
+      catch (e) { toast(e.message, true); b.disabled = false; }
+    }));
+    view.querySelectorAll('[data-tgoff]').forEach(b => b.addEventListener('click', async () => {
+      if (!confirm('Отключить Telegram-канал? Студия забудет токен бота, публикации в канал остановятся. Сам бот и канал не изменятся.')) return;
+      try { await api('/api/telegram', { method: 'DELETE' }); toast('Отключено'); route(); } catch (e) { toast(e.message, true); }
+    }));
     const setPage = async (id) => {
       try { await api('/api/meta/facebook/page', { method: 'PUT', body: { page_id: id } }); toast('Страница выбрана'); route(); }
       catch (e) { toast(e.message, true); }
@@ -1256,7 +1412,7 @@
         <dt>Вставки</dt><dd>${esc(x.inserts.map(k => (d.kinds[k] || k).toLowerCase()).join(', ')) || '—'}</dd>
         <dt>Монтаж</dt><dd>${x.cut_pauses ? 'паузы длиннее ' + x.pause_cut_ms + ' мс — вырезать' : 'паузы не трогать'}${x.cut_retakes ? ', дубли — убирать' : ''}</dd>
         <dt>YouTube</dt><dd>${x.publish_youtube ? esc((d.privacy[x.youtube_privacy] || x.youtube_privacy).toLowerCase()) : 'не публиковать'}</dd>
-        ${x.publish_facebook || x.publish_threads ? `<dt>Ещё</dt><dd>${[x.publish_facebook && 'Facebook', x.publish_threads && 'Threads'].filter(Boolean).join(', ')}</dd>` : ''}
+        ${x.publish_facebook || x.publish_threads || x.publish_telegram ? `<dt>Ещё</dt><dd>${[x.publish_facebook && 'Facebook', x.publish_threads && 'Threads', x.publish_telegram && 'Telegram'].filter(Boolean).join(', ')}</dd>` : ''}
         <dt>Папка на Диске</dt><dd>${x.folder_url ? `<a href="${esc(x.folder_url)}" target="_blank" rel="noopener">открыть</a>` : 'не задана'}</dd>
       </dl>
       <div class="foot"><a class="btn small" href="#/directions/edit?id=${encodeURIComponent(x.id)}">${I.pencil}Изменить</a></div></div>`).join('');
@@ -1275,7 +1431,7 @@
     if (!isNew && !x) { view.lastElementChild.outerHTML = failBox('Нет такого направления'); return; }
     const blank = { id: '', name: '', enabled: true, mode: 'free', language: 'ru', minutes: 15, words_per_min: 130, shorts: 3, sources_on: false,
       style_prompt: '', delivery: 'opinion', inserts: ['card', 'quote', 'number', 'map', 'stock', 'wikimedia'], stock_sources: [], cut_pauses: true, pause_cut_ms: 700,
-      pause_keep_ms: 150, cut_retakes: true, publish_youtube: false, youtube_privacy: 'private', publish_facebook: false, publish_threads: false,
+      pause_keep_ms: 150, cut_retakes: true, publish_youtube: false, youtube_privacy: 'private', publish_facebook: false, publish_threads: false, publish_telegram: false,
       brand_color: '#111111', accent_color: '#E53935',
       logo_url: '', drive_folder_id: '', folder_url: '' };
     const sw = (k, on, off) => `<label class="switch${off ? ' off' : ''}"><input type="checkbox" data-k="${k}" ${on ? 'checked' : ''}${off ? ' disabled' : ''}><i></i></label>`;
@@ -1322,7 +1478,9 @@
           cn.facebook ? 'включено — после YouTube выпуск сам уйдёт и сюда, сразу для всех; выключено — только кнопкой на странице выпуска' : 'сначала подключи страницу в <a href="#/connections">«Подключениях»</a>')}
         ${row('Threads вместе с YouTube', sw('publish_threads', v.publish_threads, !cn.threads && !v.publish_threads),
           cn.threads ? 'включено — после YouTube цепочка выйдет сама, сразу для всех; выключено — только кнопкой на странице выпуска' : 'сначала подключи в <a href="#/connections">«Подключениях»</a>')}
-        <div class="note">На странице выпуска у каждой площадки своя кнопка «Опубликовать»: Facebook и Threads выходят сразу, YouTube — с доступом, как выше. Включённые здесь Facebook и Threads выйдут ещё и сами, следом за YouTube.</div>
+        ${row('Telegram вместе с YouTube', sw('publish_telegram', v.publish_telegram, !cn.telegram && !v.publish_telegram),
+          cn.telegram ? 'включено — после YouTube пост с обложкой и ссылкой сам уйдёт в канал; выключено — только кнопкой на странице выпуска' : 'сначала подключи канал в <a href="#/connections">«Подключениях»</a>')}
+        <div class="note">На странице выпуска у каждой площадки своя кнопка «Опубликовать»: Facebook, Threads и Telegram выходят сразу, YouTube — с доступом, как выше. Включённые здесь Facebook, Threads и Telegram выйдут ещё и сами, следом за YouTube.</div>
       </div></div>
       <div class="card"><div class="card-h"><h2>Оформление и папка</h2></div><div class="card-b">
         ${row('Цвет фона карточек', `<input class="input df-color" type="color" data-k="brand_color" value="${esc(v.brand_color)}">`)}
@@ -1388,7 +1546,7 @@
   async function pagePrompter(view) {
     const wpm = pPrefs().wpm;
     view.innerHTML = head('Суфлёр', 'Текст бежит по экрану в твоём темпе: сценарии конвейера и любые свои тексты',
-      `<a class="btn primary" href="#/prompter/edit">${I.plus}Свой текст</a>`) + loading();
+      `<a class="btn" href="#/remote" title="Открой на телефоне — он станет пультом для суфлёра у камеры">📱 Пульт</a><a class="btn primary" href="#/prompter/edit">${I.plus}Свой текст</a>`) + loading();
     let d;
     try { d = await api('/api/prompter'); } catch (e) { view.lastElementChild.outerHTML = failBox(e.message); return; }
     const row = (href, title, meta, right) => `<li class="click" data-href="${esc(href)}"><div class="grow"><div class="title">${esc(title)}</div>
@@ -1408,7 +1566,8 @@
         <div class="card"><div class="card-h"><h2>Свои тексты</h2><a href="#/prompter/edit">Добавить</a></div>
           <div class="card-b flush">${texts ? `<ul class="rows">${texts}</ul>` : `<div class="empty"><b>Своих текстов нет</b>Вставь любой текст — суфлёр прокрутит его с той скоростью, с какой ты читаешь</div>`}</div></div>
       </div>
-      <div class="note" style="margin-top:16px">В суфлёре: <b>пробел</b> или касание — пауза и пуск, <b>↑ ↓</b> — скорость, <b>← →</b> — предыдущий и следующий раздел, колёсико или палец — подвинуть текст. Скорость и размер шрифта запоминаются на этом устройстве.</div>`;
+      <div class="note" style="margin-top:16px">В суфлёре: <b>пробел</b> или касание — пауза и пуск, <b>↑ ↓</b> — скорость, <b>← →</b> — предыдущий и следующий раздел, <b>1–9</b> — к сюжету, колёсико или палец — подвинуть текст.
+        <b>Кликер или педаль</b>: PageDown — пуск и пауза, PageUp — абзац назад. <b>Пульт с телефона</b>: суфлёр открыт у камеры, а на телефоне — Студия → Суфлёр → «📱 Пульт». Скорость и размер шрифта запоминаются на этом устройстве.</div>`;
     view.querySelectorAll('[data-href]').forEach(li => li.addEventListener('click', ev => {
       if (ev.target.closest('a,button')) return;
       location.hash = li.dataset.href;
@@ -1468,6 +1627,21 @@
     return html;
   }
 
+  // сюжеты текста с хронометражем (как сюжеты в выпуске новостей): слова, длительность при твоём темпе, с какой минуты
+  function rundown(blocks, wpm, secHold) {
+    const out = [];
+    let wi = 0, cur = { title: 'Начало', at: 0, words: 0, pause: 0 };
+    for (const b of blocks || []) {
+      if (b.type === 'section') { out.push(cur); cur = { title: b.text, at: wi, words: 0, pause: secHold && wi > 0 ? 1.5 : 0 }; continue; }
+      for (const it of b.items || []) {
+        if (typeof it === 'string') { cur.words++; wi++; } else if (it.pause) cur.pause += it.pause;
+      }
+    }
+    out.push(cur);
+    let start = 0;
+    return out.filter(x => x.words).map(x => { const dur = x.words / Math.max(40, wpm) * 60 + x.pause; const r = Object.assign(x, { start, dur }); start += dur; return r; });
+  }
+
   async function pagePrompterView(view, params) {
     const key = params.get('s') ? 's:' + params.get('s') : params.get('t') ? 't:' + params.get('t') : '';
     view.innerHTML = head('Суфлёр', '') + loading();
@@ -1483,7 +1657,14 @@
         : `<a class="btn" href="#/prompter/edit?t=${d.id}">${I.pencil}Править</a><button class="btn" id="pdel">${I.trash}Удалить</button>`}
       <button class="btn primary" id="pread">${I.play.replace('fill="#fff"', 'fill="currentColor"')}Читать</button>`;
     const claims = d.claims || [];
-    const side = isScript ? `
+    const pS = pPrefs();
+    const rd = rundown(d.blocks, wpm, pS.secHold);
+    const rdTotal = rd.reduce((a, x) => a + x.dur, 0);
+    const rdCard = rd.length > 1 ? `<div class="card"><div class="card-h"><h2>Сюжеты</h2><span class="faint">${clock(rdTotal)} при ${wpm} сл/мин</span></div><div class="card-b flush">
+        <ul class="rows pp-rd">${rd.map(x => `<li><span class="pp-rd-at num">${clock(x.start)}</span><div class="grow"><div class="title">${esc(x.title)}</div>
+          <div class="meta"><span>${x.words.toLocaleString('ru-RU')} ${plural(x.words, 'слово', 'слова', 'слов')}</span><span>${clock(x.dur)}</span></div></div>
+          <button class="btn small" data-from="${x.at}" title="Открыть суфлёр с этого сюжета">▶ Читать отсюда</button></li>`).join('')}</ul></div></div>` : '';
+    const side = (rdCard || '') + (isScript ? `
       <div class="card"><div class="card-h"><h2>Шортсы</h2><span class="faint">${(d.shorts || []).length}</span></div><div class="card-b flush">
         ${(d.shorts || []).length ? `<ul class="rows">${d.shorts.map(s => `<li><span class="dot ${s.found === true ? 'ok' : 'warn'}"></span><div class="grow">
           <div class="title">${s.n}. ${esc(s.title)}</div><div class="meta">${s.found === true ? 'отмечен в тексте красным ▶ … ■ — это место читай живее'
@@ -1497,7 +1678,7 @@
       : `<div class="card"><div class="card-h"><h2>Как размечать свой текст</h2></div><div class="card-b pp-help">
           <p><code># Заголовок</code> — новый раздел: по разделам можно прыгать стрелками ← →, перед разделом суфлёр делает паузу.</p>
           <p><code>//</code> — пауза в этом месте (<code>///</code> — длинная).</p>
-          <p>Пустая строка — новый абзац.</p></div></div>`;
+          <p>Пустая строка — новый абзац.</p></div></div>`);
     view.innerHTML = head(esc(d.title), meta.map(esc).join(' · '), actions) + `
       <div class="pp-view">
         <div class="card"><div class="card-h"><h2>Текст</h2>${isScript ? `<span class="faint">◆ вставка · ⏸ пауза · <span class="pp-shs">▶ шортс</span></span>` : ''}</div>
@@ -1505,6 +1686,12 @@
         <div class="grid">${side}</div>
       </div>`;
     $('#pread').addEventListener('click', () => openPlayer(d));
+    view.querySelectorAll('[data-from]').forEach(b => b.addEventListener('click', () => openPlayer(d, { from: +b.dataset.from })));
+    view.querySelectorAll('.pp-preview .pp-sec').forEach(sec => {  // заголовок сюжета в тексте — тоже «читать отсюда»
+      sec.classList.add('click');
+      sec.title = 'Читать отсюда';
+      sec.addEventListener('click', () => openPlayer(d, { from: +sec.dataset.secAt }));
+    });
     const copy = $('#pcopy');
     if (copy) copy.addEventListener('click', () => {
       try { sessionStorage.setItem('prompter.draft', JSON.stringify({ title: d.title + ' (копия)', body: d.plain || '' })); } catch (e) { /* без черновика откроется пустой редактор */ }
@@ -1561,8 +1748,8 @@
   }
 
   // ---------- плеер суфлёра ----------
-  function openPlayer(doc) {
-    document.querySelectorAll('.pp').forEach(e => e.remove());
+  function openPlayer(doc, opts = {}) {
+    document.querySelectorAll('.pp').forEach(e => { if (e.prompter) e.prompter.close(); else e.remove(); });
     const S = pPrefs();
     const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
     const el = document.createElement('div');
@@ -1571,7 +1758,7 @@
       <div class="pp-stage"><div class="pp-track"></div></div>
       <div class="pp-read" aria-hidden="true"><i></i><i></i></div>
       <div class="pp-fade pp-fade-top"></div><div class="pp-fade pp-fade-bot"></div>
-      <div class="pp-hud"><div class="pp-prog"><i></i></div><div class="pp-hud-row"><span class="pp-secname"></span><span class="pp-left"></span></div></div>
+      <div class="pp-hud"><div class="pp-prog"><i></i></div><div class="pp-hud-row"><span class="pp-secname"></span><span class="pp-remote" title="Пульт с телефона на связи">📱 пульт</span><span class="pp-left"></span></div></div>
       <div class="pp-count hidden"></div>
       <div class="pp-done hidden"><b>Конец текста</b><span>Нажми «В начало», чтобы прочитать ещё раз</span></div>
       <div class="pp-panel hidden"></div>
@@ -1592,7 +1779,7 @@
 
     // ---- разметка и измерения ----
     const words = [];
-    let W = [], N = 0, lines = [], lineOf = [], holds = new Float32Array(1), holdLeft = new Float32Array(1), secs = [];
+    let W = [], N = 0, lines = [], lineOf = [], holds = new Float32Array(1), holdLeft = new Float32Array(1), secs = [], paras = [];
     function build() {
       words.length = 0;
       track.innerHTML = blocksHtml(doc.blocks, { counter: words, hints: S.hints });
@@ -1600,9 +1787,11 @@
       W = words.map(pNorm);
       // паузы: «//» — всегда, перед разделом — если включено
       holds = new Float32Array(N + 1);
+      paras = [];
       let wi = 0;
       for (const b of doc.blocks || []) {
         if (b.type === 'section') { if (S.secHold && wi > 0) holds[wi - 1] += 1.5; continue; }
+        paras.push(wi);
         for (const it of b.items || []) {
           if (typeof it === 'string') wi++;
           else if (it.pause && wi > 0) holds[wi - 1] += it.pause;
@@ -1652,7 +1841,7 @@
     }
 
     // ---- состояние ----
-    let t = 0, target = 0, playing = false, hold = 0, last = 0, raf = 0, seen = -1, voiceOn = false, rec = null, hideT = 0, lock = null, closed = false;
+    let t = 0, target = 0, playing = false, hold = 0, last = 0, raf = 0, seen = -1, voiceOn = false, rec = null, hideT = 0, lock = null, closed = false, fresh = true;
     const readY = () => stage.clientHeight * 0.36;
     function paint(force) {
       const y = yAt(t);
@@ -1699,8 +1888,9 @@
     function toggle() {
       if (counting) return;
       if (playing) { setPlay(false); return; }
-      if (t >= N) { t = 0; hold = 0; }
-      if (t < 0.5) {  // старт с начала — отсчёт, чтобы успеть сесть и посмотреть в камеру
+      if (t >= N) { t = 0; hold = 0; fresh = true; }
+      if (fresh) {  // первый пуск (с начала или с выбранного места) — отсчёт, чтобы успеть сесть и посмотреть в камеру
+        fresh = false;
         const c = $('.pp-count', el); let n = 3;
         c.classList.remove('hidden'); c.textContent = n;
         counting = setInterval(() => {
@@ -1720,7 +1910,15 @@
       doneBox.classList.add('hidden');
     };
     const speed = d => { S.wpm = Math.max(60, Math.min(260, S.wpm + d)); pSave(S); $('[data-v="wpm"]', el).textContent = S.wpm; };
-    const restart = () => { t = target = 0; hold = 0; setPlay(false); doneBox.classList.add('hidden'); };
+    const restart = () => { t = target = 0; hold = 0; fresh = true; setPlay(false); doneBox.classList.add('hidden'); };
+    // абзац назад: сбился — к началу абзаца (если только начал его — к предыдущему); пуск не прерывается
+    const backPara = () => {
+      const cur = Math.floor(t);
+      const p = [...paras].reverse().find(x => x <= cur - 3);
+      t = target = p != null ? p : 0; hold = 0;
+      doneBox.classList.add('hidden');
+    };
+    const bump = d => { S.size = Math.max(20, Math.min(110, S.size + d)); pSave(S); style(); };
     function showBar() { el.classList.remove('calm'); clearTimeout(hideT); if (playing) hideSoon(); }
     function hideSoon() { clearTimeout(hideT); hideT = setTimeout(() => { if (playing && panel.classList.contains('hidden')) el.classList.add('calm'); }, 2500); }
 
@@ -1774,6 +1972,8 @@
         <div class="pp-p-row"><span>Пауза перед разделом</span><button class="pp-sw${on(S.secHold)}" data-p="secHold"></button></div>
         <div class="pp-p-row"><span>Показывать вставки</span><button class="pp-sw${on(S.hints)}" data-p="hints"></button></div>
         ${document.fullscreenEnabled ? `<div class="pp-p-row"><span>Во весь экран</span><button class="pp-sw${on(!!document.fullscreenElement)}" data-p="fs"></button></div>` : ''}
+        <div class="pp-p-row pp-p-note"><span>Пульт с телефона: Студия на телефоне → Суфлёр → «Пульт»${remoteOn ? ' — <b>на связи</b>' : ''}.
+          Кликер или педаль: PageDown — пуск и пауза, PageUp — абзац назад, цифры — к сюжету.</span></div>
         ${secs.length ? `<div class="pp-p-t">Разделы</div><div class="pp-secs">${secs.map((s, i) => `<button data-sec="${i}">${esc(s.title)}</button>`).join('')}</div>` : ''}`;
     }
     panel.addEventListener('click', ev => {
@@ -1829,12 +2029,17 @@
       if (ev.target.closest && ev.target.closest('input,textarea')) return;
       const k = ev.key;
       if (k === ' ' || k === 'Enter') { ev.preventDefault(); toggle(); }
+      else if (k === 'PageDown' || k === 'F5' || k === 'b' || k === 'B' || k === 'и' || k === 'И' || k === '.' || k === 'ю') { ev.preventDefault(); toggle(); }
+      else if (k === 'PageUp') { ev.preventDefault(); backPara(); }
+      else if (k === 'Home') { ev.preventDefault(); restart(); }
+      else if (/^[1-9]$/.test(k) && secs[+k - 1]) { ev.preventDefault(); t = target = secs[+k - 1].at; hold = 0; doneBox.classList.add('hidden'); }
+      else if (k === 'Escape' && playing) { ev.preventDefault(); setPlay(false); }
       else if (k === 'ArrowUp') { ev.preventDefault(); speed(10); }
       else if (k === 'ArrowDown') { ev.preventDefault(); speed(-10); }
       else if (k === 'ArrowLeft') { ev.preventDefault(); jump(-1); }
       else if (k === 'ArrowRight') { ev.preventDefault(); jump(1); }
-      else if (k === '+' || k === '=') { S.size = Math.min(110, S.size + 4); pSave(S); style(); }
-      else if (k === '-' || k === '_') { S.size = Math.max(20, S.size - 4); pSave(S); style(); }
+      else if (k === '+' || k === '=') bump(4);
+      else if (k === '-' || k === '_') bump(-4);
       else if (k === 'm' || k === 'ь') { S.mirror = !S.mirror; pSave(S); style(); }
       else if (k === 'Escape' && !document.fullscreenElement) close();
       else return;
@@ -1847,8 +2052,41 @@
     async function wake() { try { if ('wakeLock' in navigator && !document.hidden) lock = await navigator.wakeLock.request('screen'); } catch (e) { lock = null; } }
     const onVis = () => { if (!document.hidden && !closed) wake(); };
     document.addEventListener('visibilitychange', onVis);
+    let remoteT = 0, remoteOn = false;
+    const doCmd = c => {
+      if (c === 'toggle') toggle();
+      else if (c === 'faster') speed(10);
+      else if (c === 'slower') speed(-10);
+      else if (c === 'next') jump(1);
+      else if (c === 'prev') jump(-1);
+      else if (c === 'back') backPara();
+      else if (c === 'start') restart();
+      else if (c === 'bigger') bump(4);
+      else if (c === 'smaller') bump(-4);
+      else if (c === 'mirror') { S.mirror = !S.mirror; pSave(S); style(); }
+      showBar();
+    };
+    const lineNow = () => {
+      if (!lines.length || !N) return '';
+      const ln = lines[lineOf[Math.max(0, Math.min(N - 1, Math.floor(t)))]];
+      return words.slice(ln.start, ln.start + ln.n).join(' ');
+    };
+    async function remoteSync() {
+      if (closed) return;
+      try {
+        const r = await api('/api/prompter/remote/state', { noAuthRedirect: true, body: { open: true, title: doc.title || '', sec: hudSec.textContent,
+          line: lineNow(), left: hudLeft.textContent.replace(' осталось', ''), pct: N ? t / N * 100 : 0, wpm: S.wpm, size: S.size,
+          playing, mirror: !!S.mirror, voice: voiceOn, done: N > 0 && t >= N, counting: !!counting } });
+        (r.cmds || []).forEach(doCmd);
+        if (!!r.remote !== remoteOn) { remoteOn = !!r.remote; el.classList.toggle('remote', remoteOn); }
+      } catch (e) { /* сеть моргнула — спросим ещё раз */ }
+      if (!closed) remoteT = setTimeout(remoteSync, 400);
+    }
     function close() {
+      if (closed) return;
       closed = true;
+      clearTimeout(remoteT);
+      api('/api/prompter/remote/state', { noAuthRedirect: true, body: { open: false } }).catch(() => {});
       cancelAnimationFrame(raf); clearInterval(counting); clearTimeout(hideT);
       voiceStop();
       if (lock) lock.release().catch(() => {});
@@ -1860,31 +2098,105 @@
       el.remove();
     }
     build();
+    if (opts.from > 0) { t = target = Math.min(N, opts.from); }  // «Читать отсюда» — с выбранного сюжета
     wake();
     if (!N) doneBox.classList.remove('hidden');
     raf = requestAnimationFrame(frame);
+    remoteSync();
     // для проверки и будущих кнопок (Студия, расширения): управление суфлёром снаружи
-    el.prompter = { toggle, jump, speed, close, state: () => ({ t, N, playing, wpm: S.wpm, voice: voiceOn, target }),
+    el.prompter = { toggle, jump, speed, close, back: backPara, cmd: doCmd, state: () => ({ t, N, playing, wpm: S.wpm, voice: voiceOn, target, remote: remoteOn, size: S.size, mirror: !!S.mirror }),
       seek: v => { t = target = Math.max(0, Math.min(N, v)); },
       hear: text => { if (!voiceOn) { setPlay(false); voiceOn = true; target = t; } follow(text); } };  // то же, что делает микрофон: для проверки без голоса
   }
 
+  // ---------- пульт суфлёра: телефон управляет суфлёром у камеры ----------
+  async function pageRemote(view) {
+    view.innerHTML = `<div class="rm">
+      <div class="rm-top"><div><h1>Пульт</h1><p class="faint">управляет суфлёром, открытым на другом устройстве</p></div><span class="rm-on badge">ищу суфлёр…</span></div>
+      <div class="rm-now card"><div class="card-b"><div class="rm-title"></div><div class="rm-sec faint"></div>
+        <div class="pp-prog rm-prog"><i></i></div><div class="rm-meta faint"></div><div class="rm-line"></div></div></div>
+      <div class="rm-off note hidden"><b>Суфлёр не открыт</b>На устройстве у камеры открой Студию → Суфлёр → текст → «Читать». Пульт подхватит его сам — нужен тот же вход в Студию.</div>
+      <div class="rm-pad">
+        <button class="rm-b" data-c="prev" aria-label="Предыдущий сюжет">◀<small>сюжет</small></button>
+        <button class="rm-b rm-play" data-c="toggle" aria-label="Пуск или пауза">▶</button>
+        <button class="rm-b" data-c="next" aria-label="Следующий сюжет">▶<small>сюжет</small></button>
+        <button class="rm-b" data-c="back">↺<small>абзац назад</small></button>
+        <button class="rm-b" data-c="slower">−<small>медленнее</small></button>
+        <button class="rm-b" data-c="faster">+<small>быстрее</small></button>
+        <button class="rm-b" data-c="smaller">A−<small>шрифт</small></button>
+        <button class="rm-b" data-c="bigger">A+<small>шрифт</small></button>
+        <button class="rm-b" data-c="mirror">⇋<small>зеркало</small></button>
+        <button class="rm-b rm-wide" data-c="start">⏮<small>в начало</small></button>
+      </div></div>`;
+    const $$ = q => view.querySelector(q);
+    let st = null, busy = false, stop = false;
+    const draw = r => {
+      st = r.online ? r.state : null;
+      const on = $$('.rm-on');
+      on.textContent = st ? 'на связи' : 'суфлёр не открыт';
+      on.className = 'rm-on badge ' + (st ? 'ok' : '');
+      $$('.rm-off').classList.toggle('hidden', !!st);
+      $$('.rm-now').classList.toggle('hidden', !st);
+      view.querySelectorAll('.rm-b').forEach(b => { b.disabled = !st; });
+      if (!st) return;
+      $$('.rm-title').textContent = st.title || 'Текст';
+      $$('.rm-sec').textContent = st.sec && st.sec !== st.title ? st.sec : '';
+      $$('.rm-prog i').style.width = (st.pct || 0) + '%';
+      $$('.rm-meta').textContent = [st.counting ? 'отсчёт…' : st.done ? 'конец текста' : st.playing ? 'идёт' : 'пауза', st.left ? 'осталось ' + st.left : '',
+        st.wpm + ' сл/мин', st.mirror ? 'зеркало' : ''].filter(Boolean).join(' · ');
+      $$('.rm-line').textContent = st.line || '';
+      const play = $$('.rm-play');
+      play.textContent = st.playing || st.counting ? '⏸' : '▶';
+      play.classList.toggle('on', !!(st.playing || st.counting));
+    };
+    view.querySelectorAll('.rm-b').forEach(b => b.addEventListener('click', async () => {
+      if (navigator.vibrate) navigator.vibrate(12);
+      busy = true;
+      try { draw(await api('/api/prompter/remote/cmd', { body: { cmd: b.dataset.c } })); } catch (e) { toast(e.message, true); }
+      busy = false;
+    }));
+    const here = () => location.hash.split('?')[0] === '#/remote';
+    const gen = pageRemote.gen = (pageRemote.gen || 0) + 1;  // ушёл и вернулся — старый опрос сам закончится
+    while (!stop && here() && gen === pageRemote.gen) {  // пока открыт пульт — раз в 0,7 с спрашиваем, что в суфлёре
+      if (!busy) { try { draw(await api('/api/prompter/remote')); } catch (e) { if (!here()) break; } }
+      await new Promise(r => setTimeout(r, 700));
+      if (!document.body.contains(view.querySelector('.rm'))) stop = true;
+    }
+  }
+
   // ---------- Журнал ----------
-  function runRow(r) {
+  const isErr = r => ['error', 'crashed'].includes(r.status);
+  function runRow(r, o = {}) {
     const [tone, label] = RUN_TONE[r.status] || ['', r.status];
     const err = r.error ? `${r.error.node ? r.error.node + ': ' : ''}${r.error.message || ''}` : '';
-    return `<li class="click" data-run="${esc(r.id)}"><span class="dot ${tone.split(' ')[0]}" title="${esc(label)}"></span>
+    const acked = isErr(r) && r.ack;
+    return `<li class="click${acked ? ' acked' : ''}" data-run="${esc(r.id)}"><span class="dot ${acked ? '' : tone.split(' ')[0]}" title="${esc(label)}"></span>
       <div class="grow"><div class="title">${esc(r.workflow)}</div><div class="meta"><span>${when(r.started_at)}</span><span>${dur(r.duration_s)}</span><span class="faint">№${esc(r.id)}</span></div>
-      ${err ? `<div class="errtxt">${esc(err)}</div>` : ''}</div><div class="side-val">${badge(label, tone)}</div></li>`;
+      ${err ? `<div class="errtxt">${esc(err)}</div>` : ''}</div><div class="side-val">${acked ? badge('разобрано', '') : badge(label, tone)}
+      ${o.ack && isErr(r) && !r.ack ? `<button class="btn small" data-ack="${esc(r.id)}" title="Ошибка больше не будет гореть красным в меню">Разобрано</button>` : ''}</div></li>`;
   }
-  function bindRuns(root) { root.querySelectorAll('[data-run]').forEach(el => el.addEventListener('click', () => openRun(el.dataset.run))); }
+  function bindRuns(root) {
+    root.querySelectorAll('[data-run]').forEach(el => el.addEventListener('click', ev => { if (!ev.target.closest('[data-ack]')) openRun(el.dataset.run); }));
+    root.querySelectorAll('[data-ack]').forEach(b => b.addEventListener('click', async ev => {
+      ev.stopPropagation();
+      b.disabled = true;
+      try {
+        await api('/api/runs/ack', { body: { ids: [b.dataset.ack] } });
+        const li = b.closest('li');
+        li.classList.add('acked');
+        li.querySelector('.dot').className = 'dot';
+        b.closest('.side-val').innerHTML = badge('разобрано', '');
+        state.errors24 = Math.max(0, state.errors24 - 1); markNav();
+      } catch (e) { toast(e.message, true); b.disabled = false; }
+    }));
+  }
 
   async function pageLogs(view, params) {
     const mode = ['important', 'all', 'errors'].includes(params.get('view')) ? params.get('view') : 'important';
     const seg = `<div class="seg">${[['important', 'Важные'], ['all', 'Все'], ['errors', 'Ошибки']].map(([k, t]) =>
       `<button data-v="${k}" class="${k === mode ? 'on' : ''}">${t}</button>`).join('')}</div>`;
     view.innerHTML = head('Журнал', 'Каждый запуск конвейера. Нажми на строку — увидишь, где и что сломалось.',
-      `${seg}<button class="btn" id="rf">${I.refresh}Обновить</button>${reportBtn}`) +
+      `${seg}<button class="btn" id="rf">${I.refresh}Обновить</button><button class="btn hidden" id="ackall" title="Все ошибки за неделю — разобраны: красный счётчик в меню погаснет">Всё разобрано</button>${reportBtn}`) +
       `<div class="note" style="margin-bottom:16px">Если что-то пошло не так — нажми «Скачать отчёт JSON» и пришли файл Claude. Ключи и токены в файле скрыты.</div>
        <div class="card"><div class="card-b flush" id="runs">${loading()}</div></div>
        <div class="faint" id="quiet" style="margin-top:10px;font-size:12.5px"></div>
@@ -1898,7 +2210,8 @@
       try { d = await api(`/api/runs?limit=40&view=${mode}` + (cursor ? '&cursor=' + encodeURIComponent(cursor) : '')); }
       catch (e) { box.innerHTML = `<div class="empty"><b>Журнал недоступен</b>${esc(e.message)}</div>`; return; }
       cursor = d.next_cursor;
-      const html = (d.runs || []).map(runRow).join('');
+      const html = (d.runs || []).map(r => runRow(r, { ack: true })).join('');
+      if ((d.runs || []).some(r => isErr(r) && !r.ack)) $('#ackall').classList.remove('hidden');
       if (append) box.querySelector('ul').insertAdjacentHTML('beforeend', html);
       else box.innerHTML = html ? `<ul class="rows">${html}</ul>` : `<div class="empty"><b>${mode === 'errors' ? 'Ошибок нет' : 'Запусков нет'}</b></div>`;
       hidden += d.hidden_quiet || 0;
@@ -1907,6 +2220,12 @@
       $('#more').classList.toggle('hidden', !cursor);
     }
     $('#more').addEventListener('click', () => load(true));
+    $('#ackall').addEventListener('click', async ev => {
+      if (!confirm('Отметить все ошибки за неделю как разобранные? Они останутся в журнале, но перестанут гореть красным в меню и на «Обзоре».')) return;
+      ev.target.disabled = true;
+      try { const r = await api('/api/runs/ack', { body: { all: true } }); toast(r.acked ? `Отмечено: ${r.acked}` : 'Новых ошибок нет'); state.errors24 = 0; markNav(); route(); }
+      catch (e) { toast(e.message, true); ev.target.disabled = false; }
+    });
     load(false);
   }
 
@@ -2557,7 +2876,7 @@
   }
 
   // ---------- маршруты ----------
-  const PAGES = { '/': pageOverview, '/episodes': pageEpisodes, '/prompter': pagePrompter, '/prompter/view': pagePrompterView, '/prompter/edit': pagePrompterEdit, '/logs': pageLogs, '/costs': pageCosts, '/sources': pageSources, '/directions': pageDirections, '/directions/edit': pageDirectionEdit, '/connections': pageConnections, '/settings': pageSettings };
+  const PAGES = { '/': pageOverview, '/episodes': pageEpisodes, '/prompter': pagePrompter, '/prompter/view': pagePrompterView, '/prompter/edit': pagePrompterEdit, '/remote': pageRemote, '/logs': pageLogs, '/costs': pageCosts, '/sources': pageSources, '/directions': pageDirections, '/directions/edit': pageDirectionEdit, '/connections': pageConnections, '/settings': pageSettings };
 
   function route() {
     if (!state.user) return;
