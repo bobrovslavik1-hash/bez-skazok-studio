@@ -1025,3 +1025,6 @@ kbd { display: inline-block; min-width: 22px; padding: 1px 6px; border-radius: 5
 @media (max-width: 820px) { .hide-phone { display: none !important; } .ep-pic.noimg { aspect-ratio: 3.2 / 1; } }
 .ov-top .onair-slate { padding-top: 22px; }
 .ov-top .onair-slate .led { font-size: clamp(26px, 2.9vw, 40px); }
+.dir-fold-h { flex-wrap: nowrap; }
+.dir-fold-h b { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dir-fold-h .btn { flex: none; }
