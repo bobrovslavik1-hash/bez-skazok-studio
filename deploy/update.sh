@@ -2,6 +2,7 @@
 # Студия «Без сказок»: автообновление из GitHub. Запускает таймер studio-update.timer раз в 2 минуты.
 # Что делает: забирает новую версию → обновляет настройки docker compose (если изменились и прошли проверку) →
 # пересобирает Студию, если менялась папка studio/ → пересобирает сервер монтажа, если менялась папка worker/ и он свободен.
+# Студию обновляет осторожно: не посреди публикации в Facebook/Threads, а если новая версия не ответила — возвращает прежнюю.
 # Всё пишет в /opt/n8n/studio-update.log, о результате сообщает в Telegram через очередь Студии.
 set -uo pipefail
 DIR=/opt/n8n
@@ -41,7 +42,9 @@ fi
 if [ "$(git rev-parse HEAD)" != "$(git rev-parse origin/main)" ]; then
   git reset -q --hard origin/main && log "код обновлён до $(git rev-parse --short HEAD)"
 fi
-SUBJ=$(git log -1 --pretty=%s | head -c 200)
+# обрезка по байтам может разрезать русскую букву — iconv убирает обломок (и при этом сам завершается с ошибкой)
+SUBJ=$(git log -1 --pretty=%s | head -c 200 | { iconv -f UTF-8 -t UTF-8 -c 2>/dev/null || true; })
+[ -n "$SUBJ" ] || SUBJ=$(git log -1 --pretty=%s | head -c 200)
 cd "$DIR" || exit 0
 
 # ---------- настройки docker compose ----------
@@ -59,23 +62,59 @@ if ! cmp -s /tmp/studio-ovr.yml "$DIR/$OVR"; then
 fi
 
 # ---------- Студия ----------
+# Обновляем осторожно: перед сборкой запоминаем образ, на котором Студия работает сейчас.
+# Не собралась — работает прежняя. Собралась, но не отвечает 90 секунд — возвращаем прежний образ и сообщаем.
+# Пока Студия публикует в Facebook/Threads (длинное видео грузится минуты), её не перезапускаем — обновим после.
+studio_health() {  # ждёт до 90 с; печатает healthy / unhealthy / starting / пусто
+  local st="" cid
+  for _ in $(seq 1 30); do
+    cid=$(docker compose ps -a -q studio 2>/dev/null | head -n 1)
+    st=$(docker inspect -f '{{.State.Health.Status}}' "$cid" 2>/dev/null)
+    [ "$st" = healthy ] && break
+    sleep 3
+  done
+  echo "$st"
+}
+[ -f "$DIR/.studio-compose-pending" ] && COMPOSE_CHANGED=1  # новые настройки compose ждали конца публикации
 STREE=$(git -C "$SRC" rev-parse HEAD:studio)
 if { [ "$STREE" != "$(cat "$DIR/.studio-deployed" 2>/dev/null)" ] && [ "$STREE" != "$(cat "$DIR/.studio-deployed.failed" 2>/dev/null)" ]; } || [ -n "$COMPOSE_CHANGED" ]; then
-  echo "$(git -C "$SRC" rev-parse --short HEAD) $(date '+%d.%m.%Y %H:%M')" > "$SRC/studio/app/version.txt"
-  if docker compose build -q studio >>"$LOG" 2>&1 && docker compose up -d studio >>"$LOG" 2>&1; then
-    st=""
-    for _ in $(seq 1 30); do
-      st=$(docker inspect -f '{{.State.Health.Status}}' "$(docker compose ps -q studio)" 2>/dev/null)
-      [ "$st" = healthy ] && break
-      sleep 3
-    done
-    echo "$STREE" > "$DIR/.studio-deployed"
-    if [ "$st" = healthy ]; then log "Студия обновлена ($SUBJ)"; notify "✅ Студия обновлена: $SUBJ"
-    else log "Студия не отвечает после обновления ($st)"; notify "⚠️ Студия после обновления не отвечает. Claude посмотрит журнал обновлений."; fi
+  SOCIAL=$(printf "SELECT count(*) FROM k_episodes WHERE meta->>'social_pending' = 'true' AND (meta->>'social_requested_at')::timestamptz > now() - interval '2 hours';\n" |
+    docker compose exec -T "$PG_SERVICE" psql -tA -U "$PG_USER" -d "$PG_DB" 2>/dev/null | tr -d '[:space:]')
+  if [ -n "$SOCIAL" ] && [ "$SOCIAL" != 0 ]; then
+    [ -n "$COMPOSE_CHANGED" ] && touch "$DIR/.studio-compose-pending"
+    [ -f "$DIR/.studio-wait-social" ] || log "идёт публикация в Facebook/Threads — обновлю Студию, когда закончится"
+    touch "$DIR/.studio-wait-social"
   else
-    echo "$STREE" > "$DIR/.studio-deployed.failed"
-    log "сборка Студии не удалась — работает прежняя версия"
-    notify "⚠️ Студия: новая версия не собралась, работает прежняя."
+    rm -f "$DIR/.studio-wait-social" "$DIR/.studio-compose-pending"
+    CID=$(docker compose ps -a -q studio 2>/dev/null | head -n 1)
+    OLD_IMG=""; IMG_NAME=""
+    if [ -n "$CID" ]; then
+      OLD_IMG=$(docker inspect -f '{{.Image}}' "$CID" 2>/dev/null)
+      IMG_NAME=$(docker inspect -f '{{.Config.Image}}' "$CID" 2>/dev/null)
+    fi
+    echo "$(git -C "$SRC" rev-parse --short HEAD) $(date '+%d.%m.%Y %H:%M')" > "$SRC/studio/app/version.txt"
+    if ! docker compose build -q studio >>"$LOG" 2>&1; then
+      echo "$STREE" > "$DIR/.studio-deployed.failed"
+      log "сборка Студии не удалась — работает прежняя версия"
+      notify "⚠️ Студия: новая версия не собралась, работает прежняя."
+    else
+      docker compose up -d studio >>"$LOG" 2>&1
+      st=$(studio_health)
+      if [ "$st" = healthy ]; then
+        echo "$STREE" > "$DIR/.studio-deployed"
+        log "Студия обновлена ($SUBJ)"; notify "✅ Студия обновлена: $SUBJ"
+      else
+        echo "$STREE" > "$DIR/.studio-deployed.failed"
+        if [ -n "$OLD_IMG" ] && [ -n "$IMG_NAME" ] && docker tag "$OLD_IMG" "$IMG_NAME" >>"$LOG" 2>&1 &&
+           docker compose up -d --no-build studio >>"$LOG" 2>&1 && [ "$(studio_health)" = healthy ]; then
+          log "Студия не ответила после обновления (${st:-нет ответа}) — вернул прежнюю версию"
+          notify "⚠️ Студия: новая версия не ответила, вернул прежнюю — всё работает. Claude посмотрит журнал обновлений."
+        else
+          log "Студия не отвечает после обновления (${st:-нет ответа}), вернуть прежнюю версию не вышло"
+          notify "🚨 Студия не отвечает после обновления, вернуть прежнюю версию не вышло. Claude посмотрит журнал обновлений."
+        fi
+      fi
+    fi
   fi
 fi
 
