@@ -11,7 +11,9 @@
 прежнее видео и прежний план остаются. Самый первый план (собранный автоматически) хранится в edl_auto — кнопка
 «Вернуть как было». Пока сервер собирает, у выпуска статус rendering и meta.montage_job; фоновый цикл loop() спрашивает
 сервер раз в 15 секунд и возвращает выпуску прежний статус, так что перезапуск Студии пересборку не теряет.
-Исходник сервер хранит 2 дня (ночная уборка) — после этого пересобрать нельзя, Студия так и пишет.
+Исходник после публикации убирает К6, неопубликованный ночная уборка (К7) хранит 7 дней — потом пересобрать нельзя,
+Студия так и пишет. Если уборка пометила зависшую пересборку «ошибкой» (6 ч без движения), итог пересборки всё равно
+дописывается и выпуску возвращается прежний статус.
 """
 import base64
 import binascii
@@ -130,7 +132,7 @@ def _why_not(r: dict) -> str:
     if r['status'] not in EDITABLE:
         return 'Сейчас править нельзя'
     if not _raw_exists(r['id']):
-        return 'Исходника на сервере уже нет (он хранится 2 дня) — пересобрать нельзя, только смотреть'
+        return 'Исходника на сервере уже нет (после публикации его убирают, неопубликованный хранится 7 дней) — пересобрать нельзя, только смотреть'
     return ''
 
 
@@ -475,11 +477,12 @@ def poll_once() -> int:
         prev = job.get('prev_status') or 'preview_ready'
         if ok or partial:
             patch.update(stats=_new_stats(m, r.get('edl_next'), j.get('result') or {}, bool(job.get('revert'))), montage_rev=int(time.time()))
-            db.x("UPDATE k_episodes SET edl = COALESCE(edl_next, edl), edl_next = NULL, status = %s, meta = meta || %s::jsonb, updated_at = now() "
-                 "WHERE id = %s AND status = 'rendering'", (prev, json.dumps(patch), r['id']))
+            db.x("UPDATE k_episodes SET edl = COALESCE(edl_next, edl), edl_next = NULL, "
+                 "status = CASE WHEN status IN ('rendering', 'error') THEN %s ELSE status END, meta = meta || %s::jsonb, updated_at = now() "
+                 "WHERE id = %s", (prev, json.dumps(patch), r['id']))
         else:
-            db.x("UPDATE k_episodes SET edl_next = NULL, status = %s, meta = meta || %s::jsonb, updated_at = now() "
-                 "WHERE id = %s AND status = 'rendering'", (prev, json.dumps(patch), r['id']))
+            db.x("UPDATE k_episodes SET edl_next = NULL, status = CASE WHEN status IN ('rendering', 'error') THEN %s ELSE status END, "
+                 "meta = meta || %s::jsonb, updated_at = now() WHERE id = %s", (prev, json.dumps(patch), r['id']))
         if ok:
             db.notify((f'✅ Монтажный стол: «{r["title"]}» снова собран как было.' if job.get('revert') else
                        f'✅ Монтажный стол: «{r["title"]}» пересобран с правками ({job.get("changes") or 0}). Посмотри в Студии перед публикацией.'), 'episode')
