@@ -422,8 +422,9 @@ def do_drive_check(folder):
     files = r.json().get('files', [])
     videos = [{'id': x['id'], 'name': x.get('name') or '', 'size': int(x.get('size') or 0), 'created': x.get('createdTime') or ''}
               for x in files if str(x.get('mimeType') or '').startswith('video/')]
-    folders = [x.get('name') or '' for x in files if x.get('mimeType') == 'application/vnd.google-apps.folder']
-    return {'ok': True, 'name': meta.get('name') or '', 'account': acct, 'videos': videos, 'folders': folders[:20], 'folders_n': len(folders)}
+    subs = [x for x in files if x.get('mimeType') == 'application/vnd.google-apps.folder']
+    return {'ok': True, 'name': meta.get('name') or '', 'account': acct, 'videos': videos, 'folders': [x.get('name') or '' for x in subs][:20],
+            'folder_ids': [x['id'] for x in subs][:50], 'folders_n': len(subs)}
 
 
 @app.post('/drive/check')

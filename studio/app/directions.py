@@ -281,5 +281,14 @@ def folder_check(did: str, ws: str = config.WORKSPACE, fresh: bool = False) -> d
                           for v in vids if v['id'] not in seen][:10]
         res['waiting_n'] = sum(1 for v in vids if v['id'] not in seen)
         res.pop('videos', None)
+        # подпапка, которая сама папка другого направления, — не беда: у неё свой монтаж. Предупреждаем только про остальные
+        ids = res.pop('folder_ids', None)
+        if ids is not None:
+            other = {r['drive_folder_id'] for r in db.q("SELECT drive_folder_id FROM studio_directions WHERE workspace_id = %s AND drive_folder_id <> ''", (ws,))}
+            names = list(res.get('folders') or [])
+            keep = [names[i] for i, fid in enumerate(ids) if fid not in other and i < len(names)]
+            res['dir_folders_n'] = sum(1 for fid in ids if fid in other)
+            res['folders'] = keep[:20]
+            res['folders_n'] = sum(1 for fid in ids if fid not in other)
     res['enabled'] = d.get('enabled')
     return res
